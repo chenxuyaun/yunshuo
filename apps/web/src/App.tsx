@@ -26,6 +26,7 @@ import { TeamDialog } from './components/TeamDialog.js';
 import { BillingDialog } from './components/BillingDialog.js';
 import { BillingPanel } from './components/BillingPanel.js';
 import { ImportChaptersDialog } from './components/ImportChaptersDialog.js';
+import { LedgerDialog } from './components/LedgerDialog.js';
 
 interface VersionDialogState {
   versionId: string;
@@ -61,6 +62,7 @@ export function App() {
   const [teamDialogOpen, setTeamDialogOpen] = useState(false);
   const [billingDialogOpen, setBillingDialogOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [ledgerDialogOpen, setLedgerDialogOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -135,6 +137,7 @@ export function App() {
     setTeamDialogOpen(false);
     setBillingDialogOpen(false);
     setImportDialogOpen(false);
+    setLedgerDialogOpen(false);
     setMe(next);
   }
 
@@ -321,6 +324,7 @@ export function App() {
         onOpenTeam={() => setTeamDialogOpen(true)}
         onOpenBilling={() => setBillingDialogOpen(true)}
         onOpenImport={() => setImportDialogOpen(true)}
+        onOpenLedger={() => setLedgerDialogOpen(true)}
       />
 
       <div className="workspace-body">
@@ -446,6 +450,14 @@ export function App() {
             setVersionDialog(null);
             setSelectedId(chapterId);
           }}
+        />
+      ) : null}
+
+      {ledgerDialogOpen ? (
+        <LedgerDialog
+          me={me}
+          chapters={chapters}
+          onClose={() => setLedgerDialogOpen(false)}
         />
       ) : null}
     </div>

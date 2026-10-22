@@ -29,6 +29,7 @@ import { AiProposalPanel } from './AiProposalPanel.js';
 import { ChapterStatusBadge } from './Badge.js';
 import { GatePanel } from './GatePanel.js';
 import { AuditPanel } from './AuditPanel.js';
+import { CharacterContextCard } from './CharacterContextCard.js';
 import { VersionList } from './VersionList.js';
 import { IndexStatusCard } from './IndexStatusCard.js';
 import { RetrievalPanel } from './RetrievalPanel.js';
@@ -806,6 +807,7 @@ export function ChapterStudio({ me, chapter, onOpenVersion, onOpenChapter }: Pro
             draftHash={draft?.contentHash ?? null}
             isDirty={dirty}
           />
+          <CharacterContextCard chapterId={chapter.id} />
           <IndexStatusCard
             chapterId={chapter.id}
             role={me.role}
