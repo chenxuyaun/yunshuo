@@ -1141,6 +1141,153 @@ suite('M6-4 检索、AI 上下文、门禁提示与章节关联', () => {
     expect(await countEvaluations()).toBe(before);
   });
 
+  it('章节关联拒绝跨工作区与已归档条目，失败的尝试不留行也不留审计，备注覆盖不改归因', async () => {
+    const linkCount = async (chapterId: string): Promise<number> => {
+      const rows = await sql<{ count: number }[]>`
+        SELECT count(*)::int AS count FROM chapter_ledger_links WHERE chapter_id = ${chapterId}
+      `;
+      return rows[0]?.count ?? 0;
+    };
+    const currentLinksBefore = await linkCount(currentChapterA);
+    const ghostChapter = randomUUID();
+
+    const outsiderList = await call<ErrorBody>(
+      'GET',
+      `/api/chapters/${currentChapterA}/ledger-links`,
+      ownerB,
+    );
+    expectError(outsiderList, 404, 'CHAPTER_NOT_FOUND');
+    const outsiderWrite = await call<ErrorBody>(
+      'POST',
+      `/api/chapters/${currentChapterA}/ledger-links`,
+      ownerB,
+      { entryId: settingA.id, note: '外部所有者试图关联' },
+    );
+    expectError(outsiderWrite, 404, 'CHAPTER_NOT_FOUND');
+
+    expectError(
+      await call<ErrorBody>('GET', `/api/chapters/${ghostChapter}/ledger-links`, ownerA),
+      404,
+      'CHAPTER_NOT_FOUND',
+    );
+    expectError(
+      await call<ErrorBody>('POST', `/api/chapters/${ghostChapter}/ledger-links`, ownerA, {
+        entryId: settingA.id,
+      }),
+      404,
+      'CHAPTER_NOT_FOUND',
+    );
+
+    const externalEntry = await createAndPublish(
+      {
+        kind: 'setting',
+        name: 'M6-4 外部归档令',
+        summary: '只属于外部工作区',
+        payload: {
+          category: 'rule',
+          details: '外部工作区规则，不应被本工作区关联。',
+          tags: [],
+          verification: 'unverified',
+        },
+      },
+      ownerB,
+    );
+    const crossWorkspaceEntry = await call<ErrorBody>(
+      'POST',
+      `/api/chapters/${currentChapterA}/ledger-links`,
+      ownerA,
+      { entryId: externalEntry.id },
+    );
+    expectError(crossWorkspaceEntry, 404, 'LEDGER_ENTRY_NOT_FOUND');
+
+    const archivedLink = await call<ErrorBody>(
+      'POST',
+      `/api/chapters/${currentChapterA}/ledger-links`,
+      ownerA,
+      { entryId: archivedSettingA.id, note: '已归档旧案' },
+    );
+    expectError(archivedLink, 409, 'LEDGER_ENTRY_NOT_ACTIVE');
+
+    expect(await linkCount(currentChapterA)).toBe(currentLinksBefore);
+    const failedAudits = await sql<{ count: number }[]>`
+      SELECT count(*)::int AS count FROM audit_log
+      WHERE workspace_id = ${workspaceA}
+        AND action = 'chapter.ledger_link.add'
+        AND metadata->>'entryId' IN (${externalEntry.id}, ${archivedSettingA.id})
+    `;
+    expect(failedAudits[0]?.count).toBe(0);
+
+    const byAuthor = await call<ChapterLedgerLinksResponse>(
+      'POST',
+      `/api/chapters/${currentChapterA}/ledger-links`,
+      authorA,
+      { entryId: characterA.id, note: '作者标注：本章出场' },
+    );
+    expect(byAuthor.status).toBe(200);
+    const created = byAuthor.body.links.find((link) => link.entryId === characterA.id);
+    expect(created?.createdByName).toBe('M6-4 作者');
+
+    const byOwner = await call<ChapterLedgerLinksResponse>(
+      'POST',
+      `/api/chapters/${currentChapterA}/ledger-links`,
+      ownerA,
+      { entryId: characterA.id, note: '所有者改写备注' },
+    );
+    expect(byOwner.body.links).toHaveLength(byAuthor.body.links.length);
+    const overwritten = byOwner.body.links.find((link) => link.entryId === characterA.id);
+    expect(overwritten?.id).toBe(created?.id);
+    expect(overwritten?.note).toBe('所有者改写备注');
+    expect(overwritten?.createdByName).toBe('M6-4 作者');
+    expect(overwritten?.createdAt).toBe(created?.createdAt);
+
+    const prevLink = await call<ChapterLedgerLinksResponse>(
+      'POST',
+      `/api/chapters/${prevChapterA}/ledger-links`,
+      ownerA,
+      { entryId: settingA.id, note: '上一章的关联' },
+    );
+    expect(prevLink.status).toBe(200);
+    const prevLinkId = prevLink.body.links.find((link) => link.entryId === settingA.id)!.id;
+    expectError(
+      await call<ErrorBody>(
+        'DELETE',
+        `/api/chapters/${currentChapterA}/ledger-links/${prevLinkId}`,
+        ownerA,
+      ),
+      404,
+      'CHAPTER_LEDGER_LINK_NOT_FOUND',
+    );
+    const removedPrev = await call<ChapterLedgerLinksResponse>(
+      'DELETE',
+      `/api/chapters/${prevChapterA}/ledger-links/${prevLinkId}`,
+      ownerA,
+    );
+    expect(removedPrev.status).toBe(200);
+    expect(removedPrev.body.links.map((link) => link.entryId)).not.toContain(settingA.id);
+
+    const audits = await sql<
+      { action: string; actor_type: string; actor_id: string; object_id: string }[]
+    >`
+      SELECT action, actor_type, actor_id, object_id FROM audit_log
+      WHERE workspace_id = ${workspaceA}
+        AND action LIKE 'chapter.ledger_link.%'
+        AND metadata->>'linkId' IN (${created!.id}, ${prevLinkId})
+      ORDER BY created_at ASC, id ASC
+    `;
+    expect(audits.map((row) => row.action)).toEqual([
+      'chapter.ledger_link.add',
+      'chapter.ledger_link.add',
+      'chapter.ledger_link.add',
+      'chapter.ledger_link.remove',
+    ]);
+    expect(audits.every((row) => row.actor_type === 'human')).toBe(true);
+    expect(audits[0]?.actor_id).toBe(authorA.me.user.id);
+    expect(audits.slice(1).every((row) => row.actor_id === ownerA.me.user.id)).toBe(true);
+    expect(audits.slice(0, 2).every((row) => row.object_id === currentChapterA)).toBe(true);
+    expect(audits.slice(2).every((row) => row.object_id === prevChapterA)).toBe(true);
+    expect(await linkCount(currentChapterA)).toBe(currentLinksBefore + 1);
+  });
+
   it('导入章节可人工关联账本，但保持未评估且不产生门禁结论', async () => {
     const imported = await call<ImportChaptersResponse>(
       'POST',
