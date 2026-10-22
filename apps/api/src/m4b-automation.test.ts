@@ -11,7 +11,7 @@ import type {
 import type { ChapterPlan } from '@yunshuo/domain';
 import { closeDb, jsonValue, sql } from '@yunshuo/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { runAutomationTick } from './services/automation-runner.js';
+import { automationRunnerId, runAutomationTick } from './services/automation-runner.js';
 import { automationAgentEmail } from './services/automation-agent.js';
 
 interface Session {
@@ -329,6 +329,9 @@ suite('M4-B 自动化授权 / 预检 / 无人值守入库', () => {
     await createChapter(13, '预算硬限章', PLAN);
     await createChapter(14, '门禁确认章', PLAN);
     await createChapter(15, '门禁未确认章', PLAN);
+    await createChapter(16, '暂停甲章', PLAN);
+    await createChapter(17, '暂停乙章', PLAN);
+    await createChapter(18, '暂停丙章', PLAN);
 
     const provider = await call<ModelProviderView>('POST', '/api/model-providers', owner, {
       name: 'M4-B 对话桩',
@@ -826,5 +829,112 @@ suite('M4-B 自动化授权 / 预检 / 无人值守入库', () => {
     expect(conflictCheck?.status).toBe('fail');
 
     await stopIfActive(first.body.id);
+  });
+
+  it('暂停端点按作业状态分三种收口：排队立即停、运行中只举旗、终态拒绝', async () => {
+    async function pauseTrail(jobId: string): Promise<{ audits: string; events: string }> {
+      const rows = await sql<{ audits: string; events: string }[]>`
+        SELECT
+          (SELECT count(*)::text FROM audit_log
+             WHERE object_id = ${jobId} AND action = 'automation.job.pause') AS audits,
+          (SELECT count(*)::text FROM events
+             WHERE aggregate_id = ${jobId} AND event_type = 'automation.job.pause') AS events
+      `;
+      return rows[0]!;
+    }
+
+    type AttributionRow = { actorType: string; role: string; boundary: string };
+
+    async function pauseAttribution(jobId: string): Promise<AttributionRow[]> {
+      const rows = await sql<AttributionRow[]>`
+        SELECT actor_type AS "actorType", role, metadata ->> 'boundary' AS boundary
+        FROM audit_log
+        WHERE object_id = ${jobId} AND action = 'automation.job.pause'
+      `;
+      return rows;
+    }
+
+    const mandate = await createMandate({ name: '暂停授权' });
+    const queued = await createJob(mandate.id, [chapterId('暂停甲章')]);
+    expect(queued.status).toBe(200);
+    const pausePath = `/api/automation/jobs/${queued.body.id}/pause`;
+
+    // 作者连暂停都发不起；幽灵 id 一律 404，不区分"存在但不可见"
+    expectError(await call('POST', pausePath, author), 403, 'FORBIDDEN');
+    expectError(
+      await call('POST', `/api/automation/jobs/${randomUUID()}/pause`, owner),
+      404,
+      'JOB_NOT_FOUND',
+    );
+
+    // ① 排队中的作业还没开始，暂停立即落定为 paused
+    const paused = await call<AutomationJobView>('POST', pausePath, owner);
+    expect(paused.status).toBe(200);
+    expect(paused.body.status).toBe('paused');
+    expect(paused.body.pauseRequested).toBe(true);
+    expect(paused.body.stopRequested).toBe(false);
+    expect(await pauseTrail(queued.body.id)).toEqual({ audits: '1', events: '1' });
+
+    // 重复暂停幂等：返回同一状态，不再落第二份审计与事件
+    const again = await call<AutomationJobView>('POST', pausePath, owner);
+    expect(again.status).toBe(200);
+    expect(again.body.status).toBe('paused');
+    expect(await pauseTrail(queued.body.id)).toEqual({ audits: '1', events: '1' });
+
+    // paused 的作业不会被 runner 领取，一次模型请求都不发
+    stubRequests = [];
+    await runAutomationTick();
+    expect(stubRequests).toHaveLength(0);
+
+    // ③ 终态作业不能暂停：409 说清当前状态，被拒的尝试一条审计都不留
+    await stopIfActive(queued.body.id);
+    const beforeRejection = await pauseTrail(queued.body.id);
+    const rejected = await call<ErrorBody>('POST', pausePath, owner);
+    expectError(rejected, 409, 'JOB_NOT_PAUSABLE');
+    expect(rejected.body.error.message).toBe('作业当前状态 stopped，不能暂停');
+    expect(await pauseTrail(queued.body.id)).toEqual(beforeRejection);
+
+    // ② 运行中的作业不能在请求里被中断：端点只举旗，状态仍是 running
+    const running = await createJob(mandate.id, [
+      chapterId('暂停乙章'),
+      chapterId('暂停丙章'),
+    ]);
+    expect(running.status).toBe(200);
+    const runningPath = `/api/automation/jobs/${running.body.id}/pause`;
+    await sql`
+      UPDATE automation_jobs
+      SET status = 'running', runner_id = ${automationRunnerId}, heartbeat_at = now(),
+          started_at = now()
+      WHERE id = ${running.body.id}
+    `;
+    const flagged = await call<AutomationJobView>('POST', runningPath, lead);
+    expect(flagged.status).toBe(200);
+    expect(flagged.body.status).toBe('running');
+    expect(flagged.body.pauseRequested).toBe(true);
+    expect(await pauseTrail(running.body.id)).toEqual({ audits: '1', events: '1' });
+
+    // 旗子由 runner 在下一章开始前收口：零生成请求、零入库，两章仍是 pending
+    stubRequests = [];
+    await runAutomationTick();
+    const settled = await call<AutomationJobView>(
+      'GET',
+      `/api/automation/jobs/${running.body.id}`,
+      owner,
+    );
+    expect(settled.body.status).toBe('paused');
+    expect(settled.body.lastError).toBe('用户请求在章节边界暂停');
+    expect(settled.body.committedChapters).toBe(0);
+    expect(settled.body.chapters.every((chapter) => chapter.status === 'pending')).toBe(true);
+    expect(stubRequests).toHaveLength(0);
+
+    // 审计归因到点暂停的那个人，两类收口边界分别留痕
+    expect(await pauseAttribution(queued.body.id)).toEqual([
+      { actorType: 'human', role: 'owner', boundary: 'before_start' },
+    ]);
+    expect(await pauseAttribution(running.body.id)).toEqual([
+      { actorType: 'human', role: 'lead', boundary: 'chapter_end' },
+    ]);
+
+    await stopIfActive(running.body.id);
   });
 });

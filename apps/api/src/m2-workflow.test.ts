@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type {
   AbandonRevisionResponse,
+  AuditReport,
   ChapterDetail,
   CommitResponse,
   GateEvaluationView,
@@ -10,6 +11,7 @@ import type {
   SaveDraftResponse,
   StageResponse,
   StartRevisionResponse,
+  VersionSummary,
   WaiverView,
 } from '@yunshuo/contracts';
 import { closeDb, jsonValue, sql } from '@yunshuo/db';
@@ -619,6 +621,153 @@ suite('M2 修订 / 回滚 / 豁免', () => {
       [2, 'human'],
       [1, 'import'],
     ]);
+  });
+
+  it('版本列表单独成页：按版本号倒序、只给预览不给正文，且看不见别人的章节', async () => {
+    const list = await call<VersionSummary[]>(
+      owner.cookie,
+      'GET',
+      `/api/chapters/${chapterId}/versions`,
+    );
+    expect(list.status).toBe(200);
+    expect(list.body.map((version) => version.versionNo)).toEqual([6, 5, 4, 3, 2, 1]);
+
+    // 表头是当前生效的那一版；排序按版本号，不是按写入时间
+    const pointer = await sql<{ current_version_id: string }[]>`
+      SELECT current_version_id FROM chapters WHERE id = ${chapterId}
+    `;
+    expect(list.body[0]!.id).toBe(pointer[0]!.current_version_id);
+
+    // 这一页只给预览：响应里没有正文字段，长正文压平空白并截到 80 字
+    for (const version of list.body) {
+      expect(version).not.toHaveProperty('content');
+      expect(version.contentPreview).not.toContain('\n');
+      expect(version.contentPreview.length).toBeLessThanOrEqual(81);
+    }
+
+    // 三种门禁标识各归其位：导入的 v1 仍是未评估，带豁免的 v5 是 waived
+    const imported = list.body[5]!;
+    expect(imported).toMatchObject({
+      versionNo: 1,
+      source: 'import',
+      gateStatus: 'not_evaluated',
+      evaluationId: null,
+      waiverId: null,
+    });
+    expect(list.body.find((version) => version.versionNo === 5)?.gateStatus).toBe('waived');
+    expect(list.body.find((version) => version.versionNo === 5)?.waiverId).toBe(waiverId);
+    expect(list.body.find((version) => version.versionNo === 6)?.source).toBe('rollback');
+
+    // 每一版归因到当时动手的那个人
+    expect(imported.actorName).toBe(owner.me.user.name);
+    expect(list.body[0]!.actorName).toBe(lead.me.user.name);
+
+    // 幽灵章节 id 就是 404，不区分"存在但不属于你"
+    expectError(
+      await call(owner.cookie, 'GET', `/api/chapters/${randomUUID()}/versions`),
+      404,
+      'CHAPTER_NOT_FOUND',
+    );
+  });
+
+  it('审计端点算的是调用者自己的草稿，未接入的检测器如实标注且不落库', async () => {
+    const started = await call<StartRevisionResponse>(
+      owner.cookie,
+      'POST',
+      `/api/chapters/${chapterId}/revision`,
+    );
+    expect(started.status).toBe(200);
+
+    async function saveDraft(content: string): Promise<void> {
+      const saved = await call<SaveDraftResponse>(
+        owner.cookie,
+        'PUT',
+        `/api/chapters/${chapterId}/draft`,
+        { content },
+      );
+      expect(saved.status).toBe(200);
+    }
+
+    await saveDraft(contentA);
+    const gatesBefore = await sql<{ n: string }[]>`
+      SELECT count(*)::text AS n FROM gate_evaluations WHERE chapter_id = ${chapterId}
+    `;
+    const auditRowsBefore = await sql<{ n: string }[]>`
+      SELECT count(*)::text AS n FROM audit_log
+      WHERE object_id = ${chapterId} OR metadata ->> 'chapterId' = ${chapterId}
+    `;
+
+    const clean = await call<AuditReport>(
+      owner.cookie,
+      'GET',
+      `/api/chapters/${chapterId}/audits`,
+    );
+    expect(clean.status).toBe(200);
+    expect(clean.body.advisoryOnly).toBe(true);
+    expect(clean.body.audits.map((audit) => audit.key)).toEqual([
+      'ai_flavor',
+      'typos',
+      'punctuation',
+      'sensitive_words',
+      'coherence',
+    ]);
+    for (const audit of clean.body.audits) {
+      expect(audit.advisoryOnly).toBe(true);
+    }
+    const cleanByKey = new Map(clean.body.audits.map((audit) => [audit.key, audit]));
+    expect(cleanByKey.get('ai_flavor')?.status).toBe('ok');
+    expect(cleanByKey.get('punctuation')?.status).toBe('ok');
+    expect(cleanByKey.get('sensitive_words')?.status).toBe('ok');
+    // 没接入的检测器不能装作跑过：状态与文案都得说是未接入
+    expect(cleanByKey.get('typos')?.status).toBe('not_connected');
+    expect(cleanByKey.get('typos')?.message).toContain('未接入');
+    expect(cleanByKey.get('coherence')?.status).toBe('not_connected');
+    expect(cleanByKey.get('coherence')?.message).toContain('未接入');
+
+    // 换一个作者读同一章：他自己手上没有草稿就如实拒绝，不去算别人的正文
+    expectError(
+      await call(author.cookie, 'GET', `/api/chapters/${chapterId}/audits`),
+      409,
+      'NO_DRAFT',
+    );
+
+    // 同一个作者改了草稿，审计跟着改
+    await saveDraft(`${contentA}\n\n他仿佛听见巷口的脚步声,却仍没有回头。`);
+    const dirty = await call<AuditReport>(
+      owner.cookie,
+      'GET',
+      `/api/chapters/${chapterId}/audits`,
+    );
+    const dirtyByKey = new Map(dirty.body.audits.map((audit) => [audit.key, audit]));
+    expect(dirtyByKey.get('ai_flavor')?.status).toBe('warning');
+    expect(dirtyByKey.get('ai_flavor')?.hits).toBe(1);
+    expect(dirtyByKey.get('ai_flavor')?.examples).toEqual(['仿佛×1']);
+    expect(dirtyByKey.get('ai_flavor')?.message).toContain('仅提示，不改写正文');
+    expect(dirtyByKey.get('punctuation')?.status).toBe('warning');
+    expect(dirtyByKey.get('punctuation')?.examples).toEqual([',']);
+    // 警告不会反过来把未接入的检测器说成跑过
+    expect(dirtyByKey.get('typos')?.status).toBe('not_connected');
+
+    // 读审计既不建门禁评估也不留一条审计日志，章节仍停在修订草稿流程里
+    const gatesAfter = await sql<{ n: string }[]>`
+      SELECT count(*)::text AS n FROM gate_evaluations WHERE chapter_id = ${chapterId}
+    `;
+    expect(gatesAfter[0]!.n).toBe(gatesBefore[0]!.n);
+    const auditRowsAfter = await sql<{ n: string }[]>`
+      SELECT count(*)::text AS n FROM audit_log
+      WHERE object_id = ${chapterId} OR metadata ->> 'chapterId' = ${chapterId}
+    `;
+    expect(auditRowsAfter[0]!.n).toBe(auditRowsBefore[0]!.n);
+    const detail = await getChapter(owner.cookie);
+    expect(detail.status).toBe('writing');
+
+    const abandoned = await call<AbandonRevisionResponse>(
+      owner.cookie,
+      'POST',
+      `/api/chapters/${chapterId}/revision/abandon`,
+    );
+    expect(abandoned.status).toBe(200);
+    expect(abandoned.body.status).toBe('canon');
   });
 });
 
