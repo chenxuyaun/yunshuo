@@ -439,6 +439,16 @@ suite('M3 持久化锁 / 重试 / 故障转移 / 成本', () => {
     const saved = history.body.find((item) => item.id === proposal.id);
     expect(saved?.attempts).toBe(2);
     expect(saved?.cost).toBe(0.006);
+
+    const generateAudit = await sql<{ actor_type: string; role: string; actor_id: string }[]>`
+      SELECT actor_type, role, actor_id FROM audit_log
+      WHERE action = 'ai.proposal.generate'
+        AND metadata->>'proposalId' = ${proposal.id}
+    `;
+    expect(generateAudit).toHaveLength(1);
+    expect(generateAudit[0]?.actor_type).toBe('human');
+    expect(generateAudit[0]?.role).toBe(owner.me.role);
+    expect(generateAudit[0]?.actor_id).toBe(owner.me.user.id);
   });
 
   it('服务商不支持 stream_options 时去掉该参数重试一次', async () => {
@@ -621,9 +631,9 @@ suite('M3 持久化锁 / 重试 / 故障转移 / 成本', () => {
     expect(requests.map((request) => request.provider)).toEqual(['p1']);
 
     const proposals = await sql<
-      { status: string; content: string; attempts: number; error_code: string | null }[]
+      { id: string; status: string; content: string; attempts: number; error_code: string | null }[]
     >`
-      SELECT status, content, attempts, error_code FROM ai_proposals
+      SELECT id, status, content, attempts, error_code FROM ai_proposals
       WHERE chapter_id = ${chapterId}
       ORDER BY created_at DESC, id DESC
       LIMIT 1
@@ -631,5 +641,14 @@ suite('M3 持久化锁 / 重试 / 故障转移 / 成本', () => {
     expect(proposals[0]?.status).toBe('failed');
     expect(proposals[0]?.content).toBe('他只写到一半，');
     expect(proposals[0]?.attempts).toBe(1);
+
+    const failedAudit = await sql<{ actor_type: string; result: string }[]>`
+      SELECT actor_type, result FROM audit_log
+      WHERE action = 'ai.proposal.generate'
+        AND metadata->>'proposalId' = ${proposals[0]!.id}
+    `;
+    expect(failedAudit).toHaveLength(1);
+    expect(failedAudit[0]?.result).toBe('failure');
+    expect(failedAudit[0]?.actor_type).toBe('human');
   });
 });

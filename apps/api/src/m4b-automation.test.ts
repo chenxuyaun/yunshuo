@@ -469,6 +469,23 @@ suite('M4-B 自动化授权 / 预检 / 无人值守入库', () => {
       ),
     ).toBe(true);
 
+    const generationAudits = await sql<{ actor_type: string; role: string; actor_id: string }[]>`
+      SELECT actor_type, role, actor_id FROM audit_log
+      WHERE action = 'ai.proposal.generate' AND result = 'success'
+        AND object_id IN ${sql([chapterId('自动第一章'), chapterId('自动第二章')])}
+    `;
+    expect(generationAudits).toHaveLength(2);
+    // 无人值守的生成审计必须记 ai：这一段曾硬编码 'human'，导致同一次作业的
+    // chapter.commit 是 ai、ai.proposal.generate 是 human，审计自相矛盾。
+    expect(
+      generationAudits.every(
+        (audit) =>
+          audit.actor_type === 'ai' &&
+          audit.role === 'ai' &&
+          audit.actor_id === agent[0]!.id,
+      ),
+    ).toBe(true);
+
     const leases = await sql<{ count: string }[]>`
       SELECT count(*)::text AS count FROM chapter_leases
       WHERE chapter_id IN ${sql([chapterId('自动第一章'), chapterId('自动第二章')])}

@@ -13,7 +13,7 @@ import type {
   AiRetrievalView,
 } from '@yunshuo/contracts';
 import type { AuthContext } from '../auth.js';
-import { assertCanWrite } from '../auth.js';
+import { actorKindOf, assertCanWrite } from '../auth.js';
 import { conflict, notFound } from '../errors.js';
 import {
   assertLeaseHeld,
@@ -883,7 +883,7 @@ async function finalizeSuccess(input: FinalizeSuccessInput): Promise<AiProposalV
         workspace_id, actor_id, actor_type, role, action, object_type, object_id, result, metadata
       )
       VALUES (
-        ${run.auth.workspace.id}, ${run.auth.user.id}, 'human', ${run.auth.role},
+        ${run.auth.workspace.id}, ${run.auth.user.id}, ${actorKindOf(run.auth)}, ${run.auth.role},
         'ai.proposal.generate', 'chapter', ${run.chapterId}, 'success',
         ${tx.json(jsonValue({
           proposalId: run.proposalId,
@@ -982,7 +982,7 @@ async function finalizeFailure(input: FinalizeFailureInput): Promise<void> {
         workspace_id, actor_id, actor_type, role, action, object_type, object_id, result, metadata
       )
       VALUES (
-        ${run.auth.workspace.id}, ${run.auth.user.id}, 'human', ${run.auth.role},
+        ${run.auth.workspace.id}, ${run.auth.user.id}, ${actorKindOf(run.auth)}, ${run.auth.role},
         'ai.proposal.generate', 'chapter', ${run.chapterId}, 'failure',
         ${tx.json(jsonValue({
           proposalId: run.proposalId,
