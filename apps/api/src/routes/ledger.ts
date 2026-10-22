@@ -7,6 +7,7 @@ import {
   decideLedgerSuggestionSchema,
   listLedgerEntriesQuerySchema,
   publishLedgerEntrySchema,
+  rejectLedgerSuggestionSchema,
   rollbackLedgerEntrySchema,
   updateLedgerDraftSchema,
 } from '@yunshuo/contracts';
@@ -136,7 +137,7 @@ export async function ledgerRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/ledger/suggestions/:id/reject', async (request) => {
     const auth = await requireAuth(request);
     const { id } = idParams.parse(request.params);
-    const input = decideLedgerSuggestionSchema.parse(request.body);
+    const input = rejectLedgerSuggestionSchema.parse(request.body);
     return rejectLedgerSuggestion(auth, id, input);
   });
 }

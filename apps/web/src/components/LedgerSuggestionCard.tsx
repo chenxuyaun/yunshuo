@@ -110,6 +110,7 @@ export function LedgerSuggestionCard({ entry, chapters, canWrite }: Props) {
   const [basisChapterId, setBasisChapterId] = useState('');
   const [instruction, setInstruction] = useState('');
   const [decidingId, setDecidingId] = useState<string | null>(null);
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [decisionNote, setDecisionNote] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -127,6 +128,7 @@ export function LedgerSuggestionCard({ entry, chapters, canWrite }: Props) {
 
   async function refreshAfterDecision(entryId: string) {
     setDecidingId(null);
+    setRejectingId(null);
     setDecisionNote('');
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['ledgerSuggestions', entryId] }),
@@ -179,7 +181,7 @@ export function LedgerSuggestionCard({ entry, chapters, canWrite }: Props) {
       rejectLedgerSuggestion(suggestionId, { note: decisionNote.trim() }),
     onSuccess: async () => {
       setError(null);
-      setNotice('已拒绝该建议；账本未做任何写入。');
+      setNotice('已拒绝该建议：账本条目未写入任何内容，但决策人、时间与说明已记入审计。');
       await refreshAfterDecision(entry.id);
     },
     onError: async (rejectError) => {
@@ -358,7 +360,8 @@ export function LedgerSuggestionCard({ entry, chapters, canWrite }: Props) {
               {suggestion.status === 'rejected' ? (
                 <p className="muted">
                   已由 {suggestion.decidedByName ?? '未知'} 拒绝
-                  {suggestion.decisionNote ? `：${suggestion.decisionNote}` : ''}。账本未做任何写入。
+                  {suggestion.decisionNote ? `：${suggestion.decisionNote}` : ''}。
+                  账本条目未写入任何内容；决策人已记入审计。
                 </p>
               ) : null}
 
@@ -372,57 +375,93 @@ export function LedgerSuggestionCard({ entry, chapters, canWrite }: Props) {
               {canWrite && suggestion.status === 'ready' ? (
                 decidingId === suggestion.id ? (
                   <div className="ledger-action-box">
-                    <strong>采纳这条{SUGGESTION_KIND_LABELS[suggestion.kind]}建议？</strong>
+                    <strong>确认这条{SUGGESTION_KIND_LABELS[suggestion.kind]}建议</strong>
                     <p>
-                      采纳只新建未发布草稿，不会改变生效版本、检索结果与门禁提示。
+                      采纳只新建未发布草稿，不会改变生效版本、检索结果与门禁提示；
                       若条目已存在草稿或生效版本已变化，采纳会被拒绝，以免覆盖人工修改。
+                      拒绝不改动账本，但这条建议此后不能重新处理。
                     </p>
                     <label className="field">
-                      <span>确认说明（可选，写入决策记录）</span>
+                      <span>
+                        {rejectingId === suggestion.id
+                          ? '拒绝原因（必填，至少 2 个字，与决策人一起记入审计）'
+                          : '确认说明（可选，与决策人一起记入审计）'}
+                      </span>
                       <textarea
                         value={decisionNote}
                         rows={2}
                         maxLength={1000}
-                        placeholder="例如：与正文一致，接受该状态变更"
+                        placeholder={
+                          rejectingId === suggestion.id
+                            ? '例如：井底描写属于下一章，现在登记会提前剧透'
+                            : '例如：与正文一致，接受该状态变更'
+                        }
                         onChange={(event) => setDecisionNote(event.target.value)}
                       />
                     </label>
                     <div className="ledger-action-buttons">
-                      <button
-                        type="button"
-                        className="button button-quiet"
-                        onClick={() => {
-                          setDecidingId(null);
-                          setDecisionNote('');
-                        }}
-                      >
-                        取消
-                      </button>
-                      <button
-                        type="button"
-                        className="button button-quiet"
-                        disabled={rejectMutation.isPending}
-                        onClick={() => {
-                          setError(null);
-                          setNotice(null);
-                          rejectMutation.mutate(suggestion.id);
-                        }}
-                      >
-                        {rejectMutation.isPending ? '拒绝中…' : '拒绝建议'}
-                      </button>
-                      <button
-                        type="button"
-                        className="button button-primary"
-                        disabled={acceptMutation.isPending}
-                        onClick={() => {
-                          setError(null);
-                          setNotice(null);
-                          acceptMutation.mutate(suggestion.id);
-                        }}
-                      >
-                        {acceptMutation.isPending ? '写入草稿中…' : '采纳并写入草稿'}
-                      </button>
+                      {rejectingId === suggestion.id ? (
+                        <>
+                          <button
+                            type="button"
+                            className="button button-quiet"
+                            onClick={() => setRejectingId(null)}
+                          >
+                            返回
+                          </button>
+                          <button
+                            type="button"
+                            className="button button-primary"
+                            disabled={rejectMutation.isPending || decisionNote.trim().length < 2}
+                            onClick={() => {
+                              setError(null);
+                              setNotice(null);
+                              rejectMutation.mutate(suggestion.id);
+                            }}
+                          >
+                            {rejectMutation.isPending ? '拒绝中…' : '确认拒绝'}
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className="button button-quiet"
+                            onClick={() => {
+                              setDecidingId(null);
+                              setRejectingId(null);
+                              setDecisionNote('');
+                            }}
+                          >
+                            取消
+                          </button>
+                          <button
+                            type="button"
+                            className="button button-quiet"
+                            onClick={() => setRejectingId(suggestion.id)}
+                          >
+                            拒绝建议
+                          </button>
+                          <button
+                            type="button"
+                            className="button button-primary"
+                            disabled={acceptMutation.isPending}
+                            onClick={() => {
+                              setError(null);
+                              setNotice(null);
+                              acceptMutation.mutate(suggestion.id);
+                            }}
+                          >
+                            {acceptMutation.isPending ? '写入草稿中…' : '采纳并写入草稿'}
+                          </button>
+                        </>
+                      )}
                     </div>
+                    {rejectingId === suggestion.id && decisionNote.trim().length < 2 ? (
+                      <p className="muted">
+                        写下至少 2 个字的拒绝原因才能确认拒绝；接口同样会拒掉空说明，不让你留下一个没有理由的拒绝。
+                      </p>
+                    ) : null}
                   </div>
                 ) : (
                   <div className="ledger-version-actions">
@@ -433,6 +472,7 @@ export function LedgerSuggestionCard({ entry, chapters, canWrite }: Props) {
                         setError(null);
                         setNotice(null);
                         setDecidingId(suggestion.id);
+                        setRejectingId(null);
                         setDecisionNote('');
                       }}
                     >

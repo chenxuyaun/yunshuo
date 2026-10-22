@@ -538,7 +538,7 @@ suite('M6-7 账本 AI 建议：生成、人工确认与仅写草稿', () => {
       'POST',
       `/api/ledger/suggestions/${generated.id}/reject`,
       owner,
-      { note: '' },
+      { note: '这条已经被采纳过了' },
     );
     expectError(rejectDecided, 409, 'LEDGER_SUGGESTION_ALREADY_DECIDED');
   });
@@ -605,6 +605,48 @@ suite('M6-7 账本 AI 建议：生成、人工确认与仅写草稿', () => {
 
     const listed = await suggestionOf(entry.id, generated.id);
     expect(listed.status).toBe('rejected');
+  });
+
+  it('拒绝必须留下原因：空说明、1 字说明与缺请求体都被 400 拦下，且不留审计与事件', async () => {
+    const entry = await createEntry(characterInput(`林默·拒绝无原因 ${RUN_ID}`));
+    const generated = (await generate(entry.id, chapterTwo)).body as LedgerSuggestionView;
+
+    for (const payload of [{ note: '' }, { note: '好' }, undefined]) {
+      const rejected = await call<ErrorBody>(
+        'POST',
+        `/api/ledger/suggestions/${generated.id}/reject`,
+        owner,
+        payload,
+      );
+      expectError(rejected, 400, 'VALIDATION');
+    }
+
+    const untouched = await suggestionOf(entry.id, generated.id);
+    expect(untouched.status).toBe('ready');
+    expect(untouched.decidedByName).toBeNull();
+    expect(untouched.decisionNote).toBe('');
+
+    const audit = await sql<{ count: number }[]>`
+      SELECT count(*)::int AS count FROM audit_log
+      WHERE workspace_id = ${workspace} AND object_id = ${generated.id}
+        AND action = 'ledger.suggestion.reject'
+    `;
+    expect(audit[0]!.count).toBe(0);
+    const events = await sql<{ count: number }[]>`
+      SELECT count(*)::int AS count FROM events
+      WHERE workspace_id = ${workspace} AND aggregate_id = ${entry.id}
+        AND event_type = 'ledger.suggestion.rejected'
+    `;
+    expect(events[0]!.count).toBe(0);
+
+    const rejected = await call<LedgerSuggestionView>(
+      'POST',
+      `/api/ledger/suggestions/${generated.id}/reject`,
+      owner,
+      { note: '与下一章重复，先不采纳' },
+    );
+    expect(rejected.status).toBe(200);
+    expect(rejected.body.decisionNote).toBe('与下一章重复，先不采纳');
   });
 
   it('伏笔建议：回收写入草稿，非法终态与窗口外回收被账本规则拒绝', async () => {

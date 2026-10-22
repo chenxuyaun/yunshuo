@@ -1619,6 +1619,17 @@ export const decideLedgerSuggestionSchema = z.object({
 
 export type DecideLedgerSuggestionInput = z.infer<typeof decideLedgerSuggestionSchema>;
 
+// 拒绝是不可重开的决定，只在界面拦空说明不够：直接调用接口也能留下没有理由的拒绝。
+export const rejectLedgerSuggestionSchema = z.object({
+  note: z
+    .string()
+    .trim()
+    .min(2, '拒绝原因至少 2 个字')
+    .max(1000, '拒绝原因不能超过 1000 字'),
+});
+
+export type RejectLedgerSuggestionInput = z.infer<typeof rejectLedgerSuggestionSchema>;
+
 export interface LedgerSuggestionEvidenceView {
   type: 'chapter' | 'ledger_version';
   label: string;

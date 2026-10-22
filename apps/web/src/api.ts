@@ -73,6 +73,7 @@ import type {
   CreateLedgerEntryInput,
   CreateLedgerSuggestionInput,
   DecideLedgerSuggestionInput,
+  RejectLedgerSuggestionInput,
 } from '@yunshuo/contracts';
 import type { HumanRole, Role } from '@yunshuo/domain';
 import type { PriceCurrency } from '@yunshuo/contracts';
@@ -919,7 +920,7 @@ export function acceptLedgerSuggestion(
 
 export function rejectLedgerSuggestion(
   suggestionId: string,
-  input: DecideLedgerSuggestionInput,
+  input: RejectLedgerSuggestionInput,
 ): Promise<LedgerSuggestionView> {
   return request<LedgerSuggestionView>(`/api/ledger/suggestions/${suggestionId}/reject`, {
     method: 'POST',
