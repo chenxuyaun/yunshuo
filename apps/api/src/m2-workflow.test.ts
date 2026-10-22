@@ -125,6 +125,18 @@ suite('M2 修订 / 回滚 / 豁免', () => {
 
   async function cleanupChapter(id: string): Promise<void> {
     await sql`DELETE FROM commits WHERE chapter_id = ${id}`;
+    // 同一条兜底也适用于提交意图：别的章节名下、指向本章版本或暂存行的意图行
+    // （target/expected_current_version_id、staged_draft_id 三条外键都是 RESTRICT），
+    // 不清掉就会挡住本章的版本行与暂存行删除。
+    await sql`
+      DELETE FROM commit_intents
+      WHERE chapter_id <> ${id}
+        AND (
+          target_version_id IN (SELECT id FROM canon_versions WHERE chapter_id = ${id})
+          OR expected_current_version_id IN (SELECT id FROM canon_versions WHERE chapter_id = ${id})
+          OR staged_draft_id IN (SELECT id FROM staged_drafts WHERE chapter_id = ${id})
+        )
+    `;
     await sql`DELETE FROM commit_intents WHERE chapter_id = ${id}`;
     await sql`UPDATE canon_versions SET waiver_id = NULL WHERE chapter_id = ${id}`;
     // 兜底：挂在别的章节名下、但指向本章某个版本的豁免记录（跨章归属用例会造出来）
@@ -141,6 +153,15 @@ suite('M2 修订 / 回滚 / 豁免', () => {
     await sql`DELETE FROM chapter_metadata WHERE chapter_id = ${id}`;
     await sql`DELETE FROM chapter_leases WHERE chapter_id = ${id}`;
     await sql`DELETE FROM canon_versions WHERE chapter_id = ${id}`;
+    // 用例八的兄弟章节走的是真实修订流程，暂存/门禁证据/草稿分支都会落行；
+    // 这些表不在原来的清理清单里，失败一次就会永久留下孤儿。
+    await sql`DELETE FROM staged_drafts WHERE chapter_id = ${id}`;
+    await sql`DELETE FROM gate_evaluations WHERE chapter_id = ${id}`;
+    await sql`
+      DELETE FROM draft_revisions
+      WHERE branch_id IN (SELECT id FROM draft_branches WHERE chapter_id = ${id})
+    `;
+    await sql`DELETE FROM draft_branches WHERE chapter_id = ${id}`;
     await sql`DELETE FROM events WHERE aggregate_type = 'chapter' AND aggregate_id = ${id}`;
     await sql`DELETE FROM audit_log WHERE object_id = ${id} OR metadata->>'chapterId' = ${id}`;
     await sql`DELETE FROM outbox WHERE payload->>'chapterId' = ${id}`;
@@ -1473,6 +1494,564 @@ suite('M2 修订 / 回滚 / 豁免', () => {
     const used = detail.waivers.find((waiver) => waiver.id === waiverId);
     expect(used?.status).toBe('approved');
     expect(used?.targetVersionId).toBe(v1Id);
+  });
+
+  it('提交链的四道复核：目标章节要一致、暂存要属本章且是最新一份、门禁证据的上下文不能变', async () => {
+    const SIBLING_TITLE = 'M2 提交链兄弟章节';
+    const startedAt = new Date();
+
+    interface Trace {
+      versions: string;
+      commits: string;
+      canonCurrent: string;
+      intents: string;
+      failedIntents: string;
+      drafts: string;
+      evaluations: string;
+      staged: string;
+      leases: string;
+      events: string;
+      audits: string;
+      status: string;
+      currentVersionId: string | null;
+    }
+
+    async function trace(): Promise<Trace> {
+      const rows = await sql<Trace[]>`
+        SELECT
+          (SELECT count(*)::text FROM canon_versions WHERE chapter_id = ${chapterId}) AS versions,
+          (SELECT count(*)::text FROM commits WHERE chapter_id = ${chapterId}) AS commits,
+          (SELECT count(*)::text FROM canon_current WHERE chapter_id = ${chapterId}) AS "canonCurrent",
+          (SELECT count(*)::text FROM commit_intents WHERE chapter_id = ${chapterId}) AS "intents",
+          (SELECT count(*)::text FROM commit_intents
+             WHERE chapter_id = ${chapterId} AND status = 'failed') AS "failedIntents",
+          (SELECT count(*)::text FROM draft_revisions dr
+             JOIN draft_branches b ON b.id = dr.branch_id
+             WHERE b.chapter_id = ${chapterId}) AS drafts,
+          (SELECT count(*)::text FROM gate_evaluations WHERE chapter_id = ${chapterId}) AS evaluations,
+          (SELECT count(*)::text FROM staged_drafts WHERE chapter_id = ${chapterId}) AS staged,
+          (SELECT count(*)::text FROM chapter_leases WHERE chapter_id = ${chapterId}) AS leases,
+          (SELECT count(*)::text FROM events
+             WHERE aggregate_type = 'chapter' AND aggregate_id = ${chapterId}) AS events,
+          (SELECT count(*)::text FROM audit_log
+             WHERE object_id = ${chapterId} OR metadata ->> 'chapterId' = ${chapterId}) AS audits,
+          (SELECT status FROM chapters WHERE id = ${chapterId}) AS status,
+          (SELECT current_version_id::text FROM chapters WHERE id = ${chapterId}) AS "currentVersionId"
+      `;
+      return rows[0]!;
+    }
+
+    function guardKey(name: string): string {
+      return `m2-cb-guard-${name}-${randomUUID().slice(0, 8)}`;
+    }
+
+    function messageOf(result: ApiResult<unknown>): string {
+      return (result.body as ErrorBody).error.message;
+    }
+
+    let ledger = await trace();
+
+    // 每次拒绝之前先重新取一次基线：拒绝前后的差才是"这次拒绝留下的写痕"，
+    // 我自己前面那几步（修订、租约、草稿、门禁）本来就该写行。
+    async function settle(): Promise<Trace> {
+      ledger = await trace();
+      return ledger;
+    }
+
+    // 和 §十六/§十七 同一套纪律：一次拒绝除了自己的提交意图（如果那条路径留意图行）
+    // 什么都不许留下——草稿、证据、暂存、事件、审计、正典版本、指针、状态全部逐项相同。
+    async function refused(
+      result: ApiResult<unknown>,
+      status: number,
+      code: string,
+      intent: 'intent' | 'none',
+    ): Promise<void> {
+      expectError(result, status, code);
+      const after = await trace();
+      expect({ ...after, intents: ledger.intents, failedIntents: ledger.failedIntents }).toEqual(
+        ledger,
+      );
+      if (intent === 'intent') {
+        expect(Number(after.intents)).toBe(Number(ledger.intents) + 1);
+        expect(Number(after.failedIntents)).toBe(Number(ledger.failedIntents) + 1);
+      } else {
+        expect(after.intents).toBe(ledger.intents);
+        expect(after.failedIntents).toBe(ledger.failedIntents);
+      }
+      ledger = after;
+    }
+
+    async function commit(input: {
+      idempotencyKey: string;
+      stagedDraftId: string;
+      expectedCurrentVersionId: string | null;
+      targetChapterId?: string;
+    }): Promise<ApiResult<CommitResponse>> {
+      return call<CommitResponse>(owner.cookie, 'POST', `/api/chapters/${chapterId}/commit`, {
+        idempotencyKey: input.idempotencyKey,
+        targetChapterId: input.targetChapterId ?? chapterId,
+        expectedCurrentVersionId: input.expectedCurrentVersionId,
+        stagedDraftId: input.stagedDraftId,
+      });
+    }
+
+    // 一次完整的「修订 → 租约 → 草稿 → 门禁 → 暂存」，返回这份暂存行的 id
+    async function reviseAndStage(content: string): Promise<string> {
+      expect((await call(owner.cookie, 'POST', `/api/chapters/${chapterId}/revision`)).status).toBe(
+        200,
+      );
+      expect((await call(owner.cookie, 'POST', `/api/chapters/${chapterId}/lease`)).status).toBe(
+        200,
+      );
+      const saved = await call<SaveDraftResponse>(
+        owner.cookie,
+        'PUT',
+        `/api/chapters/${chapterId}/draft`,
+        { content },
+      );
+      expect(saved.status).toBe(200);
+      return gateAndStage(saved.body.draft.contentHash);
+    }
+
+    // 只重跑门禁并再暂存一次（正文不动）——用来证明"过期"不是"一律不许"。
+    // 被拒的那次提交不会替我取消暂存，而 stageDraft 只收 writing/revision/commit_failed
+    // （chapter-service.ts:615-624），所以恢复路径是：取消暂存 → 重跑门禁 → 再暂存。
+    async function regateAndStage(): Promise<string> {
+      const saved = await call<ChapterDetail>(owner.cookie, 'GET', `/api/chapters/${chapterId}`);
+      expect(saved.status).toBe(200);
+      if (saved.body.status === 'staged') {
+        expect(
+          (await call(owner.cookie, 'DELETE', `/api/chapters/${chapterId}/stage`)).status,
+        ).toBe(200);
+      }
+      const draftHash = saved.body.draft?.contentHash;
+      if (!draftHash) throw new Error('本章当前没有草稿，无法重跑门禁');
+      return gateAndStage(draftHash);
+    }
+
+    async function gateAndStage(expectedContentHash: string): Promise<string> {
+      const evaluation = await call<GateEvaluationView>(
+        owner.cookie,
+        'POST',
+        `/api/chapters/${chapterId}/gates`,
+      );
+      expect(evaluation.status).toBe(200);
+      expect(evaluation.body.status).toBe('passed');
+      const staged = await call<StageResponse>(
+        owner.cookie,
+        'POST',
+        `/api/chapters/${chapterId}/stage`,
+        { evaluationId: evaluation.body.id, expectedContentHash },
+      );
+      expect(staged.status).toBe(200);
+      return staged.body.stagedDraft.id;
+    }
+
+    // 门禁上下文哈希吃的是工作区的 settings_version / ledger_version（chapter-data.ts:70），
+    // 发布一条设定条目就是真实用户能走到的"上下文变了"。
+    let settingId = '';
+    async function publishSetting(summary: string): Promise<void> {
+      if (!settingId) {
+        const created = await call<{ id: string; draftVersion?: { id: string } | null }>(
+          owner.cookie,
+          'POST',
+          '/api/ledger/entries',
+          {
+            kind: 'setting',
+            name: SETTING_NAME,
+            aliases: ['更鼓封印'],
+            summary: '封印必须在下一声更鼓之前完成',
+            payload: { category: 'rule', details: '门框上的封印吃的是施术者的血。', tags: ['封印'] },
+          },
+        );
+        expect(created.status).toBe(200);
+        settingId = created.body.id;
+        const published = await call(
+          owner.cookie,
+          'POST',
+          `/api/ledger/entries/${settingId}/publish`,
+          { expectedDraftVersionId: created.body.draftVersion?.id, changeSummary: '首次发布' },
+        );
+        expect(published.status).toBe(200);
+        return;
+      }
+      const drafted = await call<{ draftVersion?: { id: string } | null }>(
+        owner.cookie,
+        'PUT',
+        `/api/ledger/entries/${settingId}/draft`,
+        { expectedDraftVersionId: null, summary, changeSummary: '改一笔设定' },
+      );
+      expect(drafted.status).toBe(200);
+      const published = await call(
+        owner.cookie,
+        'POST',
+        `/api/ledger/entries/${settingId}/publish`,
+        { expectedDraftVersionId: drafted.body.draftVersion?.id, changeSummary: '第二次发布' },
+      );
+      expect(published.status).toBe(200);
+    }
+
+    // ② 需要一个"属于别的章的真实暂存行"：commit_intents.staged_draft_id 是指向
+    //    staged_drafts 的外键（0000_init.sql:162），随手编的 uuid 会先崩在意图行插入上，
+    //    根本走不到那句 409——和 §十七 的 VERSION_NOT_FOUND 是同一类探针形状。
+    const sibling = randomUUID();
+    for (const row of await sql<{ id: string }[]>`SELECT id FROM chapters WHERE title = ${SIBLING_TITLE}`) {
+      await cleanupChapter(row.id);
+    }
+    // 设定条目名/别名有唯一约束，上一次失败运行留下的同名条目会让 create 直接撞
+    // LEDGER_NAME_CONFLICT，所以和兄弟章节一样先按名字扫一遍。
+    const SETTING_NAME = '封印规则';
+    async function removeSettingEntry(id: string): Promise<void> {
+      await sql`DELETE FROM outbox WHERE payload ->> 'entryId' = ${id}`;
+      await sql`DELETE FROM ledger_index_status WHERE entry_id = ${id}`;
+      await sql`DELETE FROM events WHERE aggregate_id = ${id}`;
+      await sql`DELETE FROM audit_log WHERE object_id = ${id}`;
+      await sql`DELETE FROM ledger_entries WHERE id = ${id}`;
+    }
+    for (const row of await sql<{ id: string }[]>`
+      SELECT id FROM ledger_entries WHERE name = ${SETTING_NAME} OR ${SETTING_NAME} = ANY(aliases)
+    `) {
+      await removeSettingEntry(row.id);
+    }
+    const locationRows = await sql<{ work_id: string; volume_id: string }[]>`
+      SELECT wo.id AS work_id, v.id AS volume_id
+      FROM works wo
+      JOIN volumes v ON v.work_id = wo.id
+      JOIN workspaces ws ON ws.id = wo.workspace_id
+      JOIN memberships m ON m.workspace_id = ws.id
+      JOIN users u ON u.id = m.user_id
+      WHERE u.email = 'owner@demo.local'
+      ORDER BY v.number ASC
+      LIMIT 1
+    `;
+    const location = locationRows[0];
+    if (!location) throw new Error('找不到演示作品/卷，请先执行 pnpm db:seed');
+    const siblingWordCount = countWords(importedContent);
+    await sql`
+      INSERT INTO chapters (id, work_id, volume_id, number, title, status, plan)
+      VALUES (
+        ${sibling}, ${location.work_id}, ${location.volume_id}, ${TEST_NUMBER + 2},
+        ${SIBLING_TITLE}, 'canon', ${sql.json(jsonValue(plan))}
+      )
+    `;
+    const siblingVersion = randomUUID();
+    await sql`
+      INSERT INTO canon_versions (
+        id, chapter_id, version_no, content, content_hash, word_count,
+        parent_version_id, source, actor_id
+      )
+      VALUES (
+        ${siblingVersion}, ${sibling}, 1, ${importedContent}, ${sha256(importedContent)},
+        ${siblingWordCount}, NULL, 'import', ${owner.me.user.id}
+      )
+    `;
+    await sql`UPDATE chapters SET current_version_id = ${siblingVersion} WHERE id = ${sibling}`;
+    await sql`INSERT INTO canon_current (chapter_id, version_id) VALUES (${sibling}, ${siblingVersion})`;
+    await sql`INSERT INTO chapter_metadata (chapter_id, word_count) VALUES (${sibling}, ${siblingWordCount})`;
+    await sql`
+      INSERT INTO index_status (chapter_id, version_id, status, detail)
+      VALUES (${sibling}, ${siblingVersion}, 'not_configured', 'M2 提交链兄弟章节，未接入索引')
+    `;
+
+    // 起点：上一个用例结束时本章是 canon、指针指第 6 版、没有租约
+    const entry = await settle();
+    expect(entry.status).toBe('canon');
+    expect(entry.leases).toBe('0');
+    expect(Number(entry.versions)).toBe(6);
+    const startVersionId = entry.currentVersionId;
+
+    // 兄弟章节走一遍真实流程，只为了拿到它那条暂存行（先开修订、再取租约）
+    expect(
+      (await call(owner.cookie, 'POST', `/api/chapters/${sibling}/revision`)).status,
+    ).toBe(200);
+    expect((await call(owner.cookie, 'POST', `/api/chapters/${sibling}/lease`)).status).toBe(200);
+    const siblingDraft = await call<SaveDraftResponse>(
+      owner.cookie,
+      'PUT',
+      `/api/chapters/${sibling}/draft`,
+      { content: contentA },
+    );
+    expect(siblingDraft.status).toBe(200);
+    const siblingEvaluation = await call<GateEvaluationView>(
+      owner.cookie,
+      'POST',
+      `/api/chapters/${sibling}/gates`,
+    );
+    expect(siblingEvaluation.status).toBe(200);
+    expect(siblingEvaluation.body.status).toBe('passed');
+    const siblingStaged = await call<StageResponse>(
+      owner.cookie,
+      'POST',
+      `/api/chapters/${sibling}/stage`,
+      {
+        evaluationId: siblingEvaluation.body.id,
+        expectedContentHash: siblingDraft.body.draft.contentHash,
+      },
+    );
+    expect(siblingStaged.status).toBe(200);
+
+    // 本章先暂存一份（A），后面两次拒绝都围着它转
+    const stagedA = await reviseAndStage(contentB);
+
+    // ① 目标章节必须和路径里的章节一致：这句守卫排在意图行插入之前（commit-service.ts:75），
+    //     所以它是本节唯一一句"连意图行都不留"的提交拒绝——回滚那边正相反，意图行先写。
+    await settle();
+    const mismatch = await commit({
+      idempotencyKey: guardKey('target'),
+      stagedDraftId: stagedA,
+      expectedCurrentVersionId: startVersionId,
+      targetChapterId: sibling,
+    });
+    await refused(mismatch, 400, 'TARGET_MISMATCH', 'none');
+    expect(messageOf(mismatch)).toBe('提交目标章节与当前章节不一致');
+
+    // ② 暂存行必须属于本章：拿兄弟章节那条真暂存行来提交本章
+    await settle();
+    const foreignStaged = await commit({
+      idempotencyKey: guardKey('staged-foreign'),
+      stagedDraftId: siblingStaged.body.stagedDraft.id,
+      expectedCurrentVersionId: startVersionId,
+    });
+    await refused(foreignStaged, 409, 'STAGED_DRAFT_NOT_FOUND', 'intent');
+    expect(messageOf(foreignStaged)).toBe('暂存草稿不存在或不属于本章');
+
+    // ③ 暂存行还必须是本章最新的一份：取消暂存→改草稿→重新门禁→再暂存（B），
+    //     然后拿旧的 A 去提交。取消暂存不删 A 行（§十六 已钉），所以"最新"只能靠比较得出。
+    expect(
+      (await call(owner.cookie, 'DELETE', `/api/chapters/${chapterId}/stage`)).status,
+    ).toBe(200);
+    const savedB = await call<SaveDraftResponse>(
+      owner.cookie,
+      'PUT',
+      `/api/chapters/${chapterId}/draft`,
+      { content: contentA },
+    );
+    expect(savedB.status).toBe(200);
+    const evaluationB = await call<GateEvaluationView>(
+      owner.cookie,
+      'POST',
+      `/api/chapters/${chapterId}/gates`,
+    );
+    expect(evaluationB.body.status).toBe('passed');
+    const stagedBResult = await call<StageResponse>(
+      owner.cookie,
+      'POST',
+      `/api/chapters/${chapterId}/stage`,
+      {
+        evaluationId: evaluationB.body.id,
+        expectedContentHash: savedB.body.draft.contentHash,
+      },
+    );
+    expect(stagedBResult.status).toBe(200);
+    await settle();
+    const staleCommit = await commit({
+      idempotencyKey: guardKey('stale'),
+      stagedDraftId: stagedA,
+      expectedCurrentVersionId: startVersionId,
+    });
+    await refused(staleCommit, 409, 'STAGED_DRAFT_STALE', 'intent');
+    expect(messageOf(staleCommit)).toBe('该暂存草稿已被更新的暂存覆盖');
+
+    // 换成最新那份就能提交：这道闸管的是"是不是最新"，不是一律不许提交
+    const commitV7 = await commit({
+      idempotencyKey: guardKey('ok-v7'),
+      stagedDraftId: stagedBResult.body.stagedDraft.id,
+      expectedCurrentVersionId: startVersionId,
+    });
+    expect(commitV7.status).toBe(200);
+    expect(commitV7.body.alreadyCommitted).toBe(false);
+    expect(commitV7.body.versionNo).toBe(7);
+    const v7Id = commitV7.body.versionId;
+    ledger = await trace();
+    expect(ledger.status).toBe('canon');
+    expect(ledger.currentVersionId).toBe(v7Id);
+    expect(Number(ledger.versions)).toBe(7);
+    // 提交成功会带走租约（commit-service.ts:278），后面每一步都要重新取
+    expect(ledger.leases).toBe('0');
+
+    // ④ 门禁证据的上下文不能变（提交处）：暂存之后发布一条设定条目，
+    //     工作区 settings_version +1，contextHashOf 跟着变，旧证据当场失效。
+    const stagedC = await reviseAndStage(contentB);
+    await publishSetting('封印必须在下一声更鼓之前完成。');
+    await settle();
+    const contextChanged = await commit({
+      idempotencyKey: guardKey('context'),
+      stagedDraftId: stagedC,
+      expectedCurrentVersionId: v7Id,
+    });
+    await refused(contextChanged, 409, 'CONTEXT_CHANGED', 'intent');
+    expect(messageOf(contextChanged)).toBe('设定或规则版本已变化，请重新跑门禁');
+
+    // 重跑门禁 + 重新暂存就能提交——证据不是坏了，是过期了
+    const stagedD = await regateAndStage();
+    const commitV8 = await commit({
+      idempotencyKey: guardKey('ok-v8'),
+      stagedDraftId: stagedD,
+      expectedCurrentVersionId: v7Id,
+    });
+    expect(commitV8.status).toBe(200);
+    expect(commitV8.body.versionNo).toBe(8);
+    const v8Id = commitV8.body.versionId;
+    ledger = await trace();
+    expect(Number(ledger.versions)).toBe(8);
+    expect(ledger.currentVersionId).toBe(v8Id);
+
+    // ⑤ 同一个码在暂存处还有一句（chapter-service.ts:645）：错误码筛子只数"码有没有被断过"，
+    //     命中不等于每个抛出点都测过，所以两个抛出点各钉一次。暂存不在提交链上，没有意图行可留。
+    expect(
+      (
+        await call(owner.cookie, 'POST', `/api/chapters/${chapterId}/revision`)
+      ).status,
+    ).toBe(200);
+    expect(
+      (await call(owner.cookie, 'POST', `/api/chapters/${chapterId}/lease`)).status,
+    ).toBe(200);
+    const savedE = await call<SaveDraftResponse>(
+      owner.cookie,
+      'PUT',
+      `/api/chapters/${chapterId}/draft`,
+      { content: contentA },
+    );
+    expect(savedE.status).toBe(200);
+    const evaluationE = await call<GateEvaluationView>(
+      owner.cookie,
+      'POST',
+      `/api/chapters/${chapterId}/gates`,
+    );
+    expect(evaluationE.body.status).toBe('passed');
+    await publishSetting('封印吃的是施术者的血，代价不可转让。');
+    await settle();
+    const stageRefused = await call<StageResponse>(
+      owner.cookie,
+      'POST',
+      `/api/chapters/${chapterId}/stage`,
+      {
+        evaluationId: evaluationE.body.id,
+        expectedContentHash: savedE.body.draft.contentHash,
+      },
+    );
+    await refused(stageRefused, 409, 'CONTEXT_CHANGED', 'none');
+    expect(messageOf(stageRefused)).toBe('设定或规则版本已变化，请重新跑门禁');
+
+    // 重跑门禁后暂存成功，再取消暂存、放弃修订，把章节放回 canon 且不留租约
+    const stagedF = await regateAndStage();
+    expect(stagedF).toBeTruthy();
+    expect(
+      (await call(owner.cookie, 'DELETE', `/api/chapters/${chapterId}/stage`)).status,
+    ).toBe(200);
+    expect(
+      (await call(owner.cookie, 'POST', `/api/chapters/${chapterId}/revision/abandon`)).status,
+    ).toBe(200);
+
+    // 合起来的账（相对本节开始时的 entry）：正典版本 +2（第 7、8 版）、提交 +2、
+    // canon_current 仍是每章一行；意图 +5 = 三次带意图的拒绝 + 两次成功提交，
+    // 其中三条失败、两条 committed；租约回到零；草稿/证据/暂存的每一次增长都各自归到
+    // 一个确实成功的动作上，五次拒绝一条事件与审计都不留。
+    //
+    // 顺序要求：这几笔账必须在收尾清理之前读。cleanupChapter 连带删除"挂在别的章节名下、
+    // 指向本章暂存行"的提交意图——步骤②那条证据正是这样被吃掉过一次（先清后读会少一行）。
+    const end = await trace();
+    expect(end.status).toBe('canon');
+    expect(end.currentVersionId).toBe(v8Id);
+    expect(Number(end.versions)).toBe(Number(entry.versions) + 2);
+    expect(Number(end.commits)).toBe(Number(entry.commits) + 2);
+    expect(end.canonCurrent).toBe(entry.canonCurrent);
+    expect(end.leases).toBe('0');
+    expect(Number(end.intents)).toBe(Number(entry.intents) + 5);
+    expect(Number(end.failedIntents)).toBe(Number(entry.failedIntents) + 3);
+    expect(Number(end.drafts)).toBe(Number(entry.drafts) + 7);
+    expect(Number(end.evaluations)).toBe(Number(entry.evaluations) + 6);
+    expect(Number(end.staged)).toBe(Number(entry.staged) + 5);
+    expect(Number(end.events)).toBe(Number(entry.events) + 14);
+    expect(Number(end.audits)).toBe(Number(entry.audits) + 14);
+
+    // 事件与审计只长在这一步之前那次成功的提交上：暂存被上下文闸拒掉的那一次
+    // 一条事件、一条审计都不留（refused 已经逐项比过整表）。
+    const leftover = await sql<{ kind: string; n: string }[]>`
+      SELECT kind, count(*)::text AS n FROM (
+        SELECT 'event:' || event_type AS kind FROM events
+          WHERE aggregate_id = ${chapterId} AND created_at >= ${startedAt}
+        UNION ALL
+        SELECT 'audit:' || action AS kind FROM audit_log
+          WHERE (object_id = ${chapterId} OR metadata ->> 'chapterId' = ${chapterId})
+            AND created_at >= ${startedAt}
+      ) t GROUP BY kind
+    `;
+    expect(Object.fromEntries(leftover.map((row) => [row.kind, row.n]))).toEqual({
+      'event:chapter.revision_started': '3',
+      'audit:chapter.revision.start': '3',
+      'event:chapter.revision_abandoned': '1',
+      'audit:chapter.revision.abandon': '1',
+      'event:chapter.staged': '5',
+      'audit:chapter.stage': '5',
+      'event:chapter.unstaged': '3',
+      'audit:chapter.unstage': '3',
+      'event:chapter.committed': '2',
+      'audit:chapter.commit': '2',
+    });
+
+    // 每次带意图的拒绝都在账上留下自己的码；两次成功提交记成 committed
+    const codes = await sql<{ error_code: string | null; status: string; n: string }[]>`
+      SELECT error_code, status, count(*)::text AS n FROM commit_intents
+      WHERE chapter_id = ${chapterId} AND idempotency_key LIKE 'm2-cb-guard-%'
+      GROUP BY error_code, status
+    `;
+    expect(
+      codes
+        .map((row) => [`${row.status}:${row.error_code ?? '-'}`, row.n])
+        .sort((a, b) => String(a).localeCompare(String(b))),
+    ).toEqual([
+      ['committed:-', '2'],
+      ['failed:CONTEXT_CHANGED', '1'],
+      ['failed:STAGED_DRAFT_NOT_FOUND', '1'],
+      ['failed:STAGED_DRAFT_STALE', '1'],
+    ]);
+
+    // 收尾：兄弟章节与本次的设定条目都不许留下痕迹
+    await cleanupChapter(sibling);
+    if (settingId) {
+      await removeSettingEntry(settingId);
+    }
+
+    // 整库层面再钉一次：兄弟章节、设定条目都清零，且兄弟章节那种"走真实流程"的
+    // 夹具不留暂存/门禁证据/草稿分支/正典版本孤儿——这几张表原来不在清理清单里。
+    const residue = await sql<{
+      chapters: string;
+      entries: string;
+      outbox: string;
+      siblingVersions: string;
+      siblingStaged: string;
+      siblingEvaluations: string;
+      siblingBranches: string;
+    }[]>`
+      SELECT
+        (SELECT count(*)::text FROM chapters WHERE title = ${SIBLING_TITLE}) AS chapters,
+        (SELECT count(*)::text FROM ledger_entries WHERE name = ${SETTING_NAME}) AS entries,
+        (SELECT count(*)::text FROM outbox WHERE event_type = 'index.ledger') AS outbox,
+        (SELECT count(*)::text FROM canon_versions
+           WHERE chapter_id = ${sibling}) AS "siblingVersions",
+        (SELECT count(*)::text FROM staged_drafts
+           WHERE chapter_id = ${sibling}) AS "siblingStaged",
+        (SELECT count(*)::text FROM gate_evaluations
+           WHERE chapter_id = ${sibling}) AS "siblingEvaluations",
+        (SELECT count(*)::text FROM draft_branches
+           WHERE chapter_id = ${sibling}) AS "siblingBranches"
+    `;
+    expect(residue[0]).toEqual({
+      chapters: '0',
+      entries: '0',
+      outbox: '0',
+      siblingVersions: '0',
+      siblingStaged: '0',
+      siblingEvaluations: '0',
+      siblingBranches: '0',
+    });
+
+    // 界面上读到的仍是第 8 版正典，且没有残留的暂存草稿
+    const detail = await getChapter(owner.cookie);
+    expect(detail.currentVersion?.versionNo).toBe(8);
+    expect(detail.stagedDraft).toBeNull();
+    expect(detail.status).toBe('canon');
   });
 });
 
