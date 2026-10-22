@@ -802,6 +802,7 @@ export interface AiLedgerCitationView {
   versionId: string;
   versionNo: number;
   chars: number;
+  truncated: boolean;
 }
 
 export interface AiLedgerContextView {

@@ -324,6 +324,7 @@ suite('M6-2 角色档案：状态时间线、出场扫描与写作台上下文',
   afterAll(async () => {
     for (const workspaceId of [workspace, outsiderWorkspace].filter(Boolean)) {
       await sql`DELETE FROM ledger_entry_versions WHERE workspace_id = ${workspaceId}`;
+      await sql`DELETE FROM outbox WHERE payload->>'workspaceId' = ${workspaceId}`;
       await sql`DELETE FROM ledger_entries WHERE workspace_id = ${workspaceId}`;
       await sql`DELETE FROM audit_log WHERE workspace_id = ${workspaceId}`;
       await sql`DELETE FROM events WHERE workspace_id = ${workspaceId}`;
