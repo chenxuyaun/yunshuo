@@ -773,6 +773,25 @@ suite('M6-4 检索、AI 上下文、门禁提示与章节关联', () => {
   });
 
   it('门禁提示引用别名与伏笔窗口，且不改变 dev-v0 硬门禁结论', async () => {
+    await createAndPublish({
+      kind: 'foreshadowing',
+      workId: workA,
+      name: '旧潮已退',
+      aliases: [],
+      summary: '已回收伏笔不应出现在窗口提示中',
+      sourceChapterId: prevChapterA,
+      payload: {
+        seedChapterId: prevChapterA,
+        payoffChapterMin: 2,
+        payoffChapterMax: 5,
+        importance: 'medium',
+        state: 'paid_off',
+        payoffChapterId: prevChapterA,
+        note: '旧潮线索已在第二章回收。',
+        resolutionNote: '第二章已明确回收。',
+      },
+    });
+
     const paragraph = '阿默在北门按住铜钉，雨水顺着旧斗篷落下来，他没有回头。';
     const content = `${Array.from({ length: 12 }, () => paragraph).join('\n\n')}\n\n远处传来钟声，他握紧了铜钉……`;
     const saved = await call<{ draft: { contentHash: string } }>(
@@ -806,6 +825,7 @@ suite('M6-4 检索、AI 上下文、门禁提示与章节关联', () => {
     const causalityHint = evaluation.hints.find((hint) => hint.gate === 'causality');
     expect(causalityHint).toBeTruthy();
     expect(causalityHint!.entries.map((entry) => entry.name)).toContain('黑潮预兆');
+    expect(causalityHint!.entries.map((entry) => entry.name)).not.toContain('旧潮已退');
     expect(causalityHint!.message).toContain('不影响结论');
 
     const expected = evaluateGates({

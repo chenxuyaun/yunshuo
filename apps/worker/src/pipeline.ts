@@ -701,6 +701,25 @@ function chapterNumberLabel(
   return chapter ? `第 ${chapter.number} 章《${chapter.title}》` : '未登记章节';
 }
 
+function ledgerReferencedChapterIds(context: LedgerJobContext): string[] {
+  const snapshot = context.snapshot ?? {};
+  const payload = asRecord(snapshot.payload);
+  const ids = new Set<string>();
+  const add = (value: unknown) => {
+    const id = asString(value);
+    if (id) ids.add(id);
+  };
+  add(snapshot.sourceChapterId);
+  if (context.kind === 'character') {
+    const states = Array.isArray(payload.states) ? payload.states : [];
+    for (const item of states) add(asRecord(item).asOfChapterId);
+  } else if (context.kind === 'foreshadowing') {
+    add(payload.seedChapterId);
+    add(payload.payoffChapterId);
+  }
+  return [...ids];
+}
+
 function ledgerDocumentText(
   context: LedgerJobContext,
   chapters: Map<string, LedgerChapterRow>,
@@ -1086,11 +1105,17 @@ async function runLedgerIndexJob(
     return { outcome: 'skipped', reason: '账本索引已完成或已被更新的索引任务接管' };
   }
 
-  const chapterRows = context.work_id
-    ? await sql<LedgerChapterRow[]>`
-        SELECT id, number, title FROM chapters WHERE work_id = ${context.work_id}
-      `
-    : [];
+  const chapterIds = ledgerReferencedChapterIds(context);
+  const chapterRows =
+    chapterIds.length > 0
+      ? await sql<LedgerChapterRow[]>`
+          SELECT c.id, c.number, c.title
+          FROM chapters c
+          JOIN works w ON w.id = c.work_id
+          WHERE w.workspace_id = ${context.workspace_id}
+            AND c.id IN ${sql(chapterIds)}
+        `
+      : [];
   const chapters = new Map(chapterRows.map((row) => [row.id, row]));
   const document = ledgerDocumentText(context, chapters);
   const chunks = chunkCanon(document);

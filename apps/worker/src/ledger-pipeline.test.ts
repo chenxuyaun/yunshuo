@@ -32,6 +32,7 @@ suite('worker 账本索引管线', () => {
   let workspaceId = '';
   let userId = '';
   let workId = '';
+  let volumeId = '';
   let providerId = '';
 
   const options: IndexPipelineOptions = {
@@ -45,6 +46,8 @@ suite('worker 账本索引管线', () => {
     status?: 'draft' | 'active' | 'archived';
     jobVersionNo?: number;
     content?: string;
+    scope?: 'work' | 'workspace';
+    sourceChapterId?: string | null;
   }): Promise<LedgerFixture> {
     const entryId = randomUUID();
     const versionId = randomUUID();
@@ -57,7 +60,7 @@ suite('worker 账本索引管线', () => {
       name: params.name,
       aliases: ['旧钉'],
       summary: 'worker 账本索引测试条目',
-      sourceChapterId: null,
+      sourceChapterId: params.sourceChapterId ?? null,
       payload:
         params.kind === 'setting'
           ? {
@@ -95,7 +98,8 @@ suite('worker 账本索引管线', () => {
         id, workspace_id, work_id, kind, scope, name, aliases, summary, status, created_by
       )
       VALUES (
-        ${entryId}, ${workspaceId}, ${workId}, ${params.kind}, 'work',
+        ${entryId}, ${workspaceId}, ${params.scope === 'workspace' ? null : workId},
+        ${params.kind}, ${params.scope ?? 'work'},
         ${params.name}, ${sql.array(['旧钉'])}, ${snapshot.summary}, ${status}, ${userId}
       )
     `;
@@ -203,6 +207,7 @@ suite('worker 账本索引管线', () => {
     workspaceId = randomUUID();
     userId = randomUUID();
     workId = randomUUID();
+    volumeId = randomUUID();
     providerId = randomUUID();
 
     await sql`INSERT INTO workspaces (id, name) VALUES (${workspaceId}, 'worker 账本索引测试工作区')`;
@@ -217,6 +222,10 @@ suite('worker 账本索引管线', () => {
     await sql`
       INSERT INTO works (id, workspace_id, title)
       VALUES (${workId}, ${workspaceId}, 'worker 账本测试作品')
+    `;
+    await sql`
+      INSERT INTO volumes (id, work_id, number, title)
+      VALUES (${volumeId}, ${workId}, 1, '账本测试第一卷')
     `;
     await sql`
       INSERT INTO model_providers (
@@ -300,6 +309,32 @@ suite('worker 账本索引管线', () => {
       SELECT count(*)::int AS count FROM ledger_chunks WHERE entry_id = ${fixture.entryId}
     `;
     expect(chunkCountAfter[0]?.count).toBe(outcome.chunks);
+  }, 30_000);
+
+  it('工作区级设定按来源章节标注章节名，而不是“未登记章节”', async () => {
+    stubCalls = 0;
+    const chapterId = randomUUID();
+    await sql`
+      INSERT INTO chapters (id, work_id, volume_id, number, title)
+      VALUES (${chapterId}, ${workId}, ${volumeId}, 7, '北门夜雨')
+    `;
+    const fixture = await createLedgerFixture({
+      kind: 'setting',
+      name: '北门铜钉',
+      scope: 'workspace',
+      sourceChapterId: chapterId,
+    });
+
+    const outcome = await processLedgerIndexJob(jobOf(fixture), options);
+    expect(outcome.outcome).toBe('ready');
+    const rows = await sql<{ content: string }[]>`
+      SELECT content FROM ledger_chunks
+      WHERE entry_id = ${fixture.entryId} AND version_id = ${fixture.versionId}
+      ORDER BY chunk_index ASC
+    `;
+    const joined = rows.map((row) => row.content).join('\n');
+    expect(joined).toContain('来源章节：第 7 章《北门夜雨》');
+    expect(joined).not.toContain('未登记章节');
   }, 30_000);
 
   it('归档条目不参与索引，旧投影与状态被清理', async () => {
