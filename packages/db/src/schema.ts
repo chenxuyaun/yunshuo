@@ -596,6 +596,7 @@ export const ledgerSuggestions = pgTable('ledger_suggestions', {
   kind: text('kind').notNull(),
   baseVersionId: uuid('base_version_id'),
   basisChapterId: uuid('basis_chapter_id'),
+  basisCanonVersionId: uuid('basis_canon_version_id'),
   instruction: text('instruction').notNull().default(''),
   providerId: uuid('provider_id'),
   providerName: text('provider_name').notNull().default(''),

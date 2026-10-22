@@ -1099,6 +1099,66 @@ suite('M6-7 账本 AI 建议：生成、人工确认与仅写草稿', () => {
     expect(accepted.body.suggestion.status).toBe('accepted');
   });
 
+  it('依据章节的正典在建议生成后被替换时拒绝采纳，不把旧正文的结论写进草稿', async () => {
+    chatReply = CHARACTER_JSON;
+    chatStatus = 200;
+    const entry = await createEntry(characterInput(`林默·依据过期 ${RUN_ID}`));
+    const generated = (await generate(entry.id, chapterTwo)).body as LedgerSuggestionView;
+    expect(generated.status).toBe('ready');
+    expect(generated.evidence[0]?.label).toContain('正典 v1');
+
+    const basisRows = await sql<{ id: string }[]>`
+      SELECT cc.version_id AS id
+      FROM canon_current cc
+      JOIN canon_versions cv ON cv.id = cc.version_id
+      WHERE cc.chapter_id = ${chapterTwo}
+    `;
+    const basisVersionId = basisRows[0]?.id;
+    if (!basisVersionId) throw new Error('依据章节缺少生效正典，无法构造版本替换');
+    const replacementVersionId = randomUUID();
+    const replacementContent = '第二遍敲更时林默没有应声，铜钉仍按在门框上。';
+    await sql`
+      INSERT INTO canon_versions (
+        id, chapter_id, version_no, content, content_hash, word_count, source
+      )
+      VALUES (
+        ${replacementVersionId}, ${chapterTwo}, 2, ${replacementContent},
+        ${contentHash(replacementContent)}, ${countWords(replacementContent)}, 'human'
+      )
+    `;
+    await sql`
+      UPDATE canon_current SET version_id = ${replacementVersionId}, updated_at = now()
+      WHERE chapter_id = ${chapterTwo}
+    `;
+
+    const stale = await call<ErrorBody>(
+      'POST',
+      `/api/ledger/suggestions/${generated.id}/accept`,
+      owner,
+      { note: '正文已被替换后采纳' },
+    );
+    expectError(stale, 409, 'LEDGER_SUGGESTION_BASIS_STALE');
+    expect((stale.body as ErrorBody).error.message).toContain('已被替换的正文');
+
+    // 拒绝采纳不做任何写入：既没有草稿，生效版本也还是生成时那一个。
+    const afterStale = await call<LedgerEntryDetail>('GET', `/api/ledger/entries/${entry.id}`, owner);
+    const detail = afterStale.body as LedgerEntryDetail;
+    expect(detail.draftVersion).toBeNull();
+    expect(detail.currentVersion?.id).toBe(entry.currentVersion?.id);
+
+    // 正文回到原版本后同一条建议仍可采纳：挡住的是依据身份变化，不是"改过就不能采纳"。
+    await sql`UPDATE canon_current SET version_id = ${basisVersionId}, updated_at = now() WHERE chapter_id = ${chapterTwo}`;
+    await sql`DELETE FROM canon_versions WHERE id = ${replacementVersionId}`;
+    const accepted = await call<{ suggestion: LedgerSuggestionView; entry: LedgerEntryDetail }>(
+      'POST',
+      `/api/ledger/suggestions/${generated.id}/accept`,
+      owner,
+      { note: '正文回到原版本后采纳' },
+    );
+    expect(accepted.status, `响应体：${JSON.stringify(accepted.body)}`).toBe(200);
+    expect(accepted.body.suggestion.status).toBe('accepted');
+  });
+
   it('采纳期间条目被并发发布：草稿不写入，建议退回待确认并要求基于新版本重新生成', async () => {
     chatReply = CHARACTER_JSON;
     chatStatus = 200;

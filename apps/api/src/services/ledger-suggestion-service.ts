@@ -97,6 +97,8 @@ interface BasisChapter {
   id: string;
   number: number;
   title: string;
+  canonVersionId: string;
+  canonVersionNo: number;
   content: string;
 }
 
@@ -111,6 +113,8 @@ interface SuggestionRow {
   basis_chapter_id: string | null;
   basis_chapter_number: number | null;
   basis_chapter_title: string | null;
+  basis_canon_version_id: string | null;
+  basis_canon_version_no: number | null;
   instruction: string;
   provider_name: string;
   model: string;
@@ -168,6 +172,7 @@ const SUGGESTION_SELECT = sql`
     s.id, s.entry_id, e.name AS entry_name, e.kind AS entry_kind, s.kind,
     s.base_version_id, bv.version_no AS base_version_no,
     s.basis_chapter_id, c.number AS basis_chapter_number, c.title AS basis_chapter_title,
+    s.basis_canon_version_id, bcv.version_no AS basis_canon_version_no,
     s.instruction, s.provider_name, s.model, s.prompt_version,
     s.proposal, s.rationale, s.evidence, s.attempts, s.status,
     s.error_code, s.error_message, s.prompt_tokens, s.completion_tokens,
@@ -180,6 +185,7 @@ const SUGGESTION_SELECT = sql`
   LEFT JOIN ledger_entry_versions bv ON bv.id = s.base_version_id
   LEFT JOIN ledger_entry_versions rv ON rv.id = s.result_draft_version_id
   LEFT JOIN chapters c ON c.id = s.basis_chapter_id
+  LEFT JOIN canon_versions bcv ON bcv.id = s.basis_canon_version_id
   JOIN users creator ON creator.id = s.created_by
   LEFT JOIN users decider ON decider.id = s.decided_by
 `;
@@ -295,8 +301,17 @@ async function loadBasisChapter(
   workId: string,
   chapterId: string,
 ): Promise<BasisChapter | null> {
-  const rows = await exec<{ id: string; number: number; title: string; content: string | null }[]>`
-    SELECT c.id, c.number, c.title, cv.content
+  const rows = await exec<
+    {
+      id: string;
+      number: number;
+      title: string;
+      canon_version_id: string | null;
+      canon_version_no: number | null;
+      content: string | null;
+    }[]
+  >`
+    SELECT c.id, c.number, c.title, cv.id AS canon_version_id, cv.version_no AS canon_version_no, cv.content
     FROM chapters c
     JOIN works w ON w.id = c.work_id
     LEFT JOIN canon_current cc ON cc.chapter_id = c.id
@@ -307,8 +322,15 @@ async function loadBasisChapter(
     LIMIT 1
   `;
   const row = rows[0];
-  if (!row || !row.content) return null;
-  return { id: row.id, number: row.number, title: row.title, content: row.content };
+  if (!row || !row.content || !row.canon_version_id || row.canon_version_no === null) return null;
+  return {
+    id: row.id,
+    number: row.number,
+    title: row.title,
+    canonVersionId: row.canon_version_id,
+    canonVersionNo: row.canon_version_no,
+    content: row.content,
+  };
 }
 
 async function chapterNumberMap(
@@ -342,6 +364,22 @@ async function basisChapterRef(
     LIMIT 1
   `;
   return rows[0] ?? null;
+}
+
+// 建议生成后章节可能被重新提交或回滚；采纳时按版本身份判断依据正文是否还是当时那一份。
+async function currentCanonVersionRef(
+  exec: Executor,
+  chapterId: string,
+): Promise<{ versionId: string; versionNo: number } | null> {
+  const rows = await exec<{ version_id: string; version_no: number }[]>`
+    SELECT cv.id AS version_id, cv.version_no
+    FROM canon_current cc
+    JOIN canon_versions cv ON cv.id = cc.version_id
+    WHERE cc.chapter_id = ${chapterId}
+    LIMIT 1
+  `;
+  const row = rows[0];
+  return row ? { versionId: row.version_id, versionNo: row.version_no } : null;
 }
 
 async function chapterNumbersOfWork(
@@ -840,7 +878,7 @@ export async function createLedgerSuggestion(
   const evidence: LedgerSuggestionEvidenceView[] = [
     {
       type: 'chapter',
-      label: `第 ${basis.number} 章《${basis.title}》正典`,
+      label: `第 ${basis.number} 章《${basis.title}》正典 v${basis.canonVersionNo}`,
       detail: `送入提示词 ${clippedChapter.text.length} 字 / 正文 ${basis.content.length} 字`,
       truncated: clippedChapter.truncated,
     },
@@ -857,12 +895,14 @@ export async function createLedgerSuggestion(
   try {
     await sql`
       INSERT INTO ledger_suggestions (
-        id, workspace_id, entry_id, kind, base_version_id, basis_chapter_id, instruction,
+        id, workspace_id, entry_id, kind, base_version_id, basis_chapter_id,
+        basis_canon_version_id, instruction,
         provider_id, provider_name, model, prompt_version, evidence, status, created_by
       )
       VALUES (
         ${suggestionId}, ${workspaceId}, ${entryId}, ${kind}, ${target.currentVersionId},
-        ${basis.id}, ${input.instruction}, ${first.id}, ${first.name}, ${first.model},
+        ${basis.id}, ${basis.canonVersionId}, ${input.instruction}, ${first.id}, ${first.name},
+        ${first.model},
         ${SUGGESTION_PROMPT_VERSION}, ${sql.json(jsonValue(evidence) as never)}, 'generating',
         ${auth.user.id}
       )
@@ -1257,6 +1297,23 @@ export async function acceptLedgerSuggestion(
         `建议基于 v${row.base_version_no ?? '?'}，条目已发布 v${target.currentVersionNo ?? '?'}；请基于新版本重新生成建议`,
         { currentVersionNo: target.currentVersionNo },
       );
+    }
+    if (row.basis_canon_version_id && row.basis_chapter_id) {
+      const basisCanonNow = await currentCanonVersionRef(tx, row.basis_chapter_id);
+      if (basisCanonNow?.versionId !== row.basis_canon_version_id) {
+        throw conflict(
+          'LEDGER_SUGGESTION_BASIS_STALE',
+          `第 ${row.basis_chapter_number ?? '?'} 章的正典在建议生成后已变化：建议基于 v${
+            row.basis_canon_version_no ?? '?'
+          }，${basisCanonNow ? `现为 v${basisCanonNow.versionNo}` : '现已无生效正典'}；` +
+            '建议里的状态来自已被替换的正文，请基于最新正典重新生成',
+          {
+            basisChapterId: row.basis_chapter_id,
+            basisCanonVersionNo: row.basis_canon_version_no,
+            currentCanonVersionNo: basisCanonNow?.versionNo ?? null,
+          },
+        );
+      }
     }
     if (target.draftVersionId) {
       throw conflict(
