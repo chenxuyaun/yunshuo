@@ -1,5 +1,7 @@
 # 云说 · Yunshuo
 
+[![CI](https://github.com/chenxuyaun/yunshuo/actions/workflows/ci.yml/badge.svg)](https://github.com/chenxuyaun/yunshuo/actions/workflows/ci.yml)
+
 面向长篇小说团队协作的自托管写作工坊。AI 只提案，人工提交；每一章都要经过五道门禁与完整审计，正典版本可追溯。
 
 云说把“写小说”拆成一条可审计的流水线：**章节租约 → 草稿 → 五道门禁 → 五类审计 → 隔离暂存 → 唯一提交链 → 正典版本**。在人工主流程之上，逐步加入 AI 续写提案、混合检索、显式授权的无人值守逐章生成、团队账号与工作区、预算与账单对账，以及单机 Docker 部署。
@@ -65,6 +67,8 @@ node scripts/smoke.mjs   # API 主流程：租约→草稿→门禁→审计→�
 node scripts/m4-acceptance.mjs   # 真实嵌入验收：探测→重建→ready→hybrid→去重→降级
 node scripts/retrieval-eval.mjs  # 小样本检索评估，报告写入 docs/m4-retrieval-eval.json
 ```
+
+GitHub Actions 在 push 到 `main` 和 pull request 时运行同一套检查：PostgreSQL 17 + pgvector 服务容器、迁移与种子、类型检查与全量测试。
 
 **M4-B 起必须使用独立测试库跑集成测试。** M4-B 测试会创建真实作业；若与开发 API 共用主库，开发进程里的 runner 可能领取测试作业并调用真实模型。测试库只需建一次：
 
