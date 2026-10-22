@@ -243,6 +243,23 @@ suite('M6-7 账本 AI 建议：生成、人工确认与仅写草稿', () => {
     return found;
   }
 
+  // 并发用例的前提：采纳确实卡在草稿写入的条目行锁上，而不是根本没进入这个窗口。
+  async function waitUntilBlockedOnEntryLock(): Promise<void> {
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      const blocked = await sql<{ pid: number }[]>`
+        SELECT pid FROM pg_stat_activity
+        WHERE wait_event_type = 'Lock'
+          AND wait_event = 'transactionid'
+          AND state = 'active'
+          AND query ILIKE '%FROM ledger_entries e%FOR UPDATE%'
+      `;
+      if (blocked.length > 0) return;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    throw new Error('采纳请求没有卡在条目行锁上，并发窗口用例的前提不成立');
+  }
+
   beforeAll(async () => {
     process.env.LOG_LEVEL = 'silent';
 
@@ -1038,5 +1055,106 @@ suite('M6-7 账本 AI 建议：生成、人工确认与仅写草稿', () => {
     );
     expect(accepted.status).toBe(200);
     expect(accepted.body.suggestion.status).toBe('accepted');
+  });
+
+  it('采纳期间条目被并发发布：草稿不写入，建议退回待确认并要求基于新版本重新生成', async () => {
+    chatReply = CHARACTER_JSON;
+    chatStatus = 200;
+    const entry = await createEntry(characterInput(`林默·并发发布 ${RUN_ID}`));
+    const generated = (await generate(entry.id, chapterTwo)).body as LedgerSuggestionView;
+    const baseVersionId = entry.currentVersion?.id;
+    if (!baseVersionId) throw new Error('条目缺少生效版本，无法构造并发发布');
+
+    let releasePublisher!: () => void;
+    const publisherGate = new Promise<void>((resolve) => {
+      releasePublisher = resolve;
+    });
+    const newVersionId = randomUUID();
+    // 先占住条目行锁再等待：采纳只锁建议行，会顺利完成认领，然后卡在草稿写入的
+    // `SELECT … FOR UPDATE` 上。放行前在同一事务里把当前快照固化为 v2 并移动生效指针，
+    // 等价于另一个人在这个窗口里发布了一次。
+    const publisher = sql.begin(async (tx) => {
+      await tx`
+        SELECT id FROM ledger_entries
+        WHERE id = ${entry.id} AND workspace_id = ${workspace}
+        FOR UPDATE
+      `;
+      await publisherGate;
+      await tx`
+        INSERT INTO ledger_entry_versions (
+          id, entry_id, workspace_id, version_no, snapshot, change_summary, created_by
+        )
+        SELECT ${newVersionId}, ${entry.id}, ${workspace}, 2, snapshot, '并发发布（用例内模拟）', ${owner.me.user.id}
+        FROM ledger_entry_versions
+        WHERE id = ${baseVersionId}
+      `;
+      await tx`
+        UPDATE ledger_entries SET current_version_id = ${newVersionId}, updated_at = now()
+        WHERE id = ${entry.id}
+      `;
+      await tx`UPDATE workspaces SET ledger_version = ledger_version + 1 WHERE id = ${workspace}`;
+    });
+
+    let apply: ApiResult<ErrorBody>;
+    try {
+      const pending = call<ErrorBody>(
+        'POST',
+        `/api/ledger/suggestions/${generated.id}/accept`,
+        owner,
+        { note: '并发窗口内采纳' },
+      );
+      await waitUntilBlockedOnEntryLock();
+      releasePublisher();
+      apply = await pending;
+      await publisher;
+    } catch (error) {
+      releasePublisher();
+      await publisher.catch(() => undefined);
+      throw error;
+    }
+
+    expectError(apply, 409, 'LEDGER_CURRENT_VERSION_CHANGED');
+    expect(apply.body.error.message).toContain('草稿未写入');
+
+    const listed = await suggestionOf(entry.id, generated.id);
+    expect(listed.status).toBe('ready');
+    expect(listed.errorCode).toBe('LEDGER_SUGGESTION_APPLY_FAILED');
+    expect(listed.errorMessage).toContain('已发布新版本');
+    expect(listed.decidedByName).toBeNull();
+    expect(listed.decidedAt).toBeNull();
+    expect(listed.decisionNote).toBe('');
+    expect(listed.resultDraftVersionNo).toBeNull();
+
+    const detail = await call<LedgerEntryDetail>('GET', `/api/ledger/entries/${entry.id}`, owner);
+    expect(detail.body.draftVersion).toBeNull();
+    expect(detail.body.currentVersion?.versionNo).toBe(2);
+    const versions = await sql<{ count: number }[]>`
+      SELECT count(*)::int AS count FROM ledger_entry_versions WHERE entry_id = ${entry.id}
+    `;
+    expect(versions[0]?.count).toBe(2);
+
+    const audit = await sql<{ count: number }[]>`
+      SELECT count(*)::int AS count FROM audit_log
+      WHERE workspace_id = ${workspace}
+        AND action = 'ledger.suggestion.accept'
+        AND object_id = ${generated.id}::uuid
+    `;
+    expect(audit[0]?.count).toBe(0);
+    const events = await sql<{ count: number }[]>`
+      SELECT count(*)::int AS count FROM events
+      WHERE workspace_id = ${workspace}
+        AND event_type = 'ledger.suggestion.accepted'
+        AND aggregate_id = ${entry.id}::uuid
+    `;
+    expect(events[0]?.count).toBe(0);
+
+    // 退回待确认后再次采纳走「请基于新版本重新生成」，不会把旧建议的结论压到 v2 之上。
+    const retry = await call<ErrorBody>(
+      'POST',
+      `/api/ledger/suggestions/${generated.id}/accept`,
+      owner,
+      { note: '重试' },
+    );
+    expectError(retry, 409, 'LEDGER_SUGGESTION_STALE');
   });
 });
