@@ -1,0 +1,489 @@
+{
+  "generatedAt": "2026-10-22T16:08:34.470Z",
+  "base": "http://127.0.0.1:3101",
+  "database": "yunshuo_test",
+  "runId": "33764654",
+  "runLabel": "concurrency-scaling",
+  "scenario": "分批增长 + 并发读：200/300/500 章增量导入到 1000 章，再对同一部作品做并发读（并发 1/4/8，每级 3 轮）",
+  "workTitle": "压测作品 33764654",
+  "cleanupWindowStart": "2026-10-22 16:08:23.24767+00",
+  "config": {
+    "stages": [
+      200,
+      300,
+      500
+    ],
+    "charsPerChapter": 600,
+    "longChapterChars": 500000,
+    "repeatsPerEndpoint": 3,
+    "concurrencyLevels": [
+      1,
+      4,
+      8
+    ],
+    "roundsPerConcurrencyLevel": 3,
+    "automationRunner": "关闭（AUTOMATION_RUNNER=0，独立实例指向 yunshuo_test）"
+  },
+  "baselineCounts": {
+    "works": 1,
+    "chapters": 2,
+    "canon_versions": 1,
+    "canon_current": 1,
+    "chapter_metadata": 1,
+    "index_status": 1,
+    "gate_evaluations": 0,
+    "ledger_entries": 0,
+    "ledger_versions": 0,
+    "ledger_aliases": 0,
+    "ledger_index_status": 0,
+    "links": 0,
+    "sessions": 0,
+    "events": 3,
+    "audit": 119,
+    "outbox": 0,
+    "canon_chars": 107
+  },
+  "environment": {
+    "modelProvidersInDatabase": "enabled=0 embedding_enabled=0",
+    "indexingWorker": "未启动（只跑独立 API 实例；索引状态停留在 not_configured/pending，检索与嵌入不在本轮测量范围）",
+    "automationRunner": "关闭",
+    "zeroModelSpend": true
+  },
+  "stages": [
+    {
+      "chapterTotal": 200,
+      "canonChars": 120106,
+      "import": {
+        "label": "批量导入 200 章",
+        "chapterCount": 200,
+        "sentChars": 119999,
+        "importMs": 802,
+        "requestBodyBytes": 361653,
+        "responseBytes": 20567,
+        "storedWordCount": 110569,
+        "longestChapterChars": 554
+      },
+      "indexStates": "not_configured=200",
+      "timeline": {
+        "medianMs": 23,
+        "samples": [
+          23,
+          24,
+          16
+        ],
+        "responseBytes": 22608,
+        "appearances": 200,
+        "states": 1,
+        "warnings": 0,
+        "scanScope": "canon_current"
+      },
+      "characterContext": {
+        "medianMs": 15,
+        "samples": [
+          15,
+          15,
+          4
+        ],
+        "responseBytes": 681,
+        "characters": 1,
+        "omittedCharacters": 0,
+        "asOfChapterNumber": 100
+      },
+      "foreshadowingReminders": {
+        "medianMs": 11,
+        "samples": [
+          12,
+          4,
+          11
+        ],
+        "responseBytes": 1137,
+        "reminders": 1,
+        "latestCanonChapterNumber": 200
+      },
+      "foreshadowingReport": {
+        "medianMs": 16,
+        "samples": [
+          16,
+          16,
+          16
+        ],
+        "responseBytes": 932,
+        "items": 1,
+        "summary": {
+          "total": 1,
+          "unresolved": 1,
+          "overdue": 0,
+          "paidOff": 0,
+          "abandoned": 0
+        }
+      },
+      "chapterList": {
+        "medianMs": 17,
+        "samples": [
+          17,
+          10,
+          21
+        ],
+        "responseBytes": 60197,
+        "chapters": 202
+      },
+      "rawCanonFetch": {
+        "ms": 172,
+        "psqlOverheadMs": 169,
+        "msExcludingProcessStart": 3,
+        "bytes": 348736
+      },
+      "apiRssMb": 106.6
+    },
+    {
+      "chapterTotal": 500,
+      "canonChars": 300105,
+      "import": {
+        "label": "批量导入 300 章",
+        "chapterCount": 300,
+        "sentChars": 179999,
+        "importMs": 1153,
+        "requestBodyBytes": 542741,
+        "responseBytes": 31083,
+        "storedWordCount": 165841,
+        "longestChapterChars": 554
+      },
+      "indexStates": "not_configured=500",
+      "timeline": {
+        "medianMs": 17,
+        "samples": [
+          17,
+          31,
+          14
+        ],
+        "responseBytes": 55908,
+        "appearances": 500,
+        "states": 1,
+        "warnings": 0,
+        "scanScope": "canon_current"
+      },
+      "characterContext": {
+        "medianMs": 7,
+        "samples": [
+          23,
+          7,
+          7
+        ],
+        "responseBytes": 681,
+        "characters": 1,
+        "omittedCharacters": 0,
+        "asOfChapterNumber": 250
+      },
+      "foreshadowingReminders": {
+        "medianMs": 16,
+        "samples": [
+          18,
+          14,
+          16
+        ],
+        "responseBytes": 1137,
+        "reminders": 1,
+        "latestCanonChapterNumber": 500
+      },
+      "foreshadowingReport": {
+        "medianMs": 16,
+        "samples": [
+          15,
+          16,
+          17
+        ],
+        "responseBytes": 932,
+        "items": 1,
+        "summary": {
+          "total": 1,
+          "unresolved": 1,
+          "overdue": 0,
+          "paidOff": 0,
+          "abandoned": 0
+        }
+      },
+      "chapterList": {
+        "medianMs": 23,
+        "samples": [
+          15,
+          38,
+          23
+        ],
+        "responseBytes": 149897,
+        "chapters": 502
+      },
+      "rawCanonFetch": {
+        "ms": 223,
+        "psqlOverheadMs": 169,
+        "msExcludingProcessStart": 54,
+        "bytes": 871817
+      },
+      "apiRssMb": 118.4
+    },
+    {
+      "chapterTotal": 1000,
+      "canonChars": 600104,
+      "import": {
+        "label": "批量导入 500 章",
+        "chapterCount": 500,
+        "sentChars": 299999,
+        "importMs": 2239,
+        "requestBodyBytes": 904525,
+        "responseBytes": 51685,
+        "storedWordCount": 276423,
+        "longestChapterChars": 554
+      },
+      "indexStates": "not_configured=1000",
+      "timeline": {
+        "medianMs": 30,
+        "samples": [
+          30,
+          30,
+          38
+        ],
+        "responseBytes": 111412,
+        "appearances": 1000,
+        "states": 1,
+        "warnings": 0,
+        "scanScope": "canon_current"
+      },
+      "characterContext": {
+        "medianMs": 14,
+        "samples": [
+          6,
+          20,
+          14
+        ],
+        "responseBytes": 681,
+        "characters": 1,
+        "omittedCharacters": 0,
+        "asOfChapterNumber": 500
+      },
+      "foreshadowingReminders": {
+        "medianMs": 26,
+        "samples": [
+          15,
+          26,
+          32
+        ],
+        "responseBytes": 1144,
+        "reminders": 1,
+        "latestCanonChapterNumber": 1000
+      },
+      "foreshadowingReport": {
+        "medianMs": 19,
+        "samples": [
+          28,
+          17,
+          19
+        ],
+        "responseBytes": 934,
+        "items": 1,
+        "summary": {
+          "total": 1,
+          "unresolved": 1,
+          "overdue": 0,
+          "paidOff": 0,
+          "abandoned": 0
+        }
+      },
+      "chapterList": {
+        "medianMs": 20,
+        "samples": [
+          49,
+          13,
+          20
+        ],
+        "responseBytes": 299399,
+        "chapters": 1002
+      },
+      "rawCanonFetch": {
+        "ms": 201,
+        "psqlOverheadMs": 169,
+        "msExcludingProcessStart": 32,
+        "bytes": 1743662
+      },
+      "apiRssMb": 141
+    }
+  ],
+  "longChapter": {
+    "import": {
+      "label": "单章长文导入 500000 字",
+      "chapterCount": 1,
+      "sentChars": 500000,
+      "importMs": 128,
+      "requestBodyBytes": 1460174,
+      "responseBytes": 291,
+      "storedWordCount": 460014,
+      "longestChapterChars": 460014
+    },
+    "timelineMedianMs": 49,
+    "timelineSamples": [
+      45,
+      49,
+      65
+    ],
+    "remindersMedianMs": 29
+  },
+  "concurrentReads": {
+    "note": "客户端与被测 API 在同一台机器、由同一个 Node 进程发起；每轮并发等全部返回再开下一轮（批量并发，不是恒定到达率）。请求都复用同一个登录会话，不代表多用户/多工作区分布。",
+    "levels": [
+      1,
+      4,
+      8
+    ],
+    "roundsPerLevel": 3,
+    "corpus": {
+      "chapters": 1003,
+      "canonChars": 1100104
+    },
+    "apiRssMbBefore": 171.6,
+    "heavyScan": [
+      {
+        "concurrency": 1,
+        "rounds": 3,
+        "totalRequests": 3,
+        "wallMs": 125,
+        "throughputPerSecond": 24,
+        "medianMs": 43,
+        "p50Ms": 43,
+        "p95Ms": 43,
+        "maxMs": 43,
+        "minMs": 39,
+        "statusCounts": {
+          "200": 3
+        },
+        "failures": 0,
+        "failureSample": null
+      },
+      {
+        "concurrency": 4,
+        "rounds": 3,
+        "totalRequests": 12,
+        "wallMs": 540,
+        "throughputPerSecond": 22.22,
+        "medianMs": 87,
+        "p50Ms": 83,
+        "p95Ms": 349,
+        "maxMs": 349,
+        "minMs": 38,
+        "statusCounts": {
+          "200": 12
+        },
+        "failures": 0,
+        "failureSample": null
+      },
+      {
+        "concurrency": 8,
+        "rounds": 3,
+        "totalRequests": 24,
+        "wallMs": 706,
+        "throughputPerSecond": 33.99,
+        "medianMs": 131,
+        "p50Ms": 129,
+        "p95Ms": 349,
+        "maxMs": 360,
+        "minMs": 56,
+        "statusCounts": {
+          "200": 24
+        },
+        "failures": 0,
+        "failureSample": null
+      }
+    ],
+    "lightRead": [
+      {
+        "concurrency": 1,
+        "rounds": 3,
+        "totalRequests": 3,
+        "wallMs": 46,
+        "throughputPerSecond": 65.22,
+        "medianMs": 15,
+        "p50Ms": 15,
+        "p95Ms": 15,
+        "maxMs": 15,
+        "minMs": 15,
+        "statusCounts": {
+          "200": 3
+        },
+        "failures": 0,
+        "failureSample": null
+      },
+      {
+        "concurrency": 4,
+        "rounds": 3,
+        "totalRequests": 12,
+        "wallMs": 69,
+        "throughputPerSecond": 173.91,
+        "medianMs": 21,
+        "p50Ms": 21,
+        "p95Ms": 26,
+        "maxMs": 26,
+        "minMs": 8,
+        "statusCounts": {
+          "200": 12
+        },
+        "failures": 0,
+        "failureSample": null
+      },
+      {
+        "concurrency": 8,
+        "rounds": 3,
+        "totalRequests": 24,
+        "wallMs": 76,
+        "throughputPerSecond": 315.79,
+        "medianMs": 17,
+        "p50Ms": 16,
+        "p95Ms": 25,
+        "maxMs": 27,
+        "minMs": 9,
+        "statusCounts": {
+          "200": 24
+        },
+        "failures": 0,
+        "failureSample": null
+      }
+    ],
+    "apiRssMbAfter": 264.8
+  },
+  "countsAfterRun": {
+    "works": 2,
+    "chapters": 1003,
+    "canon_versions": 1002,
+    "canon_current": 1002,
+    "chapter_metadata": 1002,
+    "index_status": 1002,
+    "gate_evaluations": 0,
+    "ledger_entries": 2,
+    "ledger_versions": 2,
+    "ledger_aliases": 2,
+    "ledger_index_status": 2,
+    "links": 0,
+    "sessions": 1,
+    "events": 1008,
+    "audit": 1125,
+    "outbox": 2,
+    "canon_chars": 1100104
+  },
+  "apiRssMb": 264.8,
+  "countsAfterCleanup": {
+    "works": 1,
+    "chapters": 2,
+    "canon_versions": 1,
+    "canon_current": 1,
+    "chapter_metadata": 1,
+    "index_status": 1,
+    "gate_evaluations": 0,
+    "ledger_entries": 0,
+    "ledger_versions": 0,
+    "ledger_aliases": 0,
+    "ledger_index_status": 0,
+    "links": 0,
+    "sessions": 0,
+    "events": 3,
+    "audit": 119,
+    "outbox": 0,
+    "canon_chars": 107
+  },
+  "cleanupDrift": {}
+}

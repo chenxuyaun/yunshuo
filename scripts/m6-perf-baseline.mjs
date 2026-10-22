@@ -18,6 +18,11 @@ const STAGES = (process.env.PERF_STAGES ?? '200,300,500')
 const CHARS_PER_CHAPTER = Number(process.env.PERF_CHAPTER_CHARS ?? '600');
 const LONG_CHAPTER_CHARS = Number(process.env.PERF_LONG_CHAPTER_CHARS ?? '500000');
 const REPEATS = Number(process.env.PERF_REPEATS ?? '3');
+const CONCURRENCY_LEVELS = (process.env.PERF_CONCURRENCY ?? '1,4,8')
+  .split(',')
+  .map((value) => Number(value.trim()))
+  .filter((value) => Number.isInteger(value) && value > 0);
+const CONCURRENCY_ROUNDS = Number(process.env.PERF_CONCURRENCY_ROUNDS ?? '3');
 const KEEP = process.argv.includes('--keep');
 const RUN_ID = process.env.PERF_RUN_ID ?? randomUUID().slice(0, 8);
 const WORK_TITLE = `压测作品 ${RUN_ID}`;
@@ -44,14 +49,18 @@ function psql(query) {
 
 let cookie = '';
 
+function authHeaders(hasBody) {
+  return {
+    ...(hasBody ? { 'content-type': 'application/json' } : {}),
+    ...(cookie ? { cookie } : {}),
+  };
+}
+
 async function request(path, { method = 'GET', body } = {}) {
   const started = performance.now();
   const response = await fetch(`${BASE}${path}`, {
     method,
-    headers: {
-      ...(body ? { 'content-type': 'application/json' } : {}),
-      ...(cookie ? { cookie } : {}),
-    },
+    headers: authHeaders(Boolean(body)),
     body: body ? JSON.stringify(body) : undefined,
   });
   const setCookie = response.headers.getSetCookie();
@@ -62,6 +71,29 @@ async function request(path, { method = 'GET', body } = {}) {
     throw new Error(`${method} ${path} -> ${response.status}\n${text.slice(0, 800)}`);
   }
   return { json: text ? JSON.parse(text) : null, elapsedMs, bytes: Buffer.byteLength(text) };
+}
+
+// 并发压测不能因为一个 500 就终止整轮：那正是想知道的结果之一。
+async function requestSafe(path) {
+  const started = performance.now();
+  try {
+    const response = await fetch(`${BASE}${path}`, { headers: authHeaders(false) });
+    const text = await response.text();
+    return {
+      ok: response.ok,
+      status: response.status,
+      elapsedMs: Math.round(performance.now() - started),
+      bytes: Buffer.byteLength(text),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: null,
+      error: String(error?.message ?? error).slice(0, 200),
+      elapsedMs: Math.round(performance.now() - started),
+      bytes: 0,
+    };
+  }
 }
 
 function median(samples) {
@@ -87,6 +119,53 @@ async function measure(path, { method = 'GET', body } = {}, repeats = REPEATS) {
     lastJson = result.json;
   }
   return { medianMs: median(times), samples: times, responseBytes: median(sizes), lastJson };
+}
+
+function percentile(samples, p) {
+  if (samples.length === 0) return null;
+  const sorted = [...samples].sort((a, b) => a - b);
+  const index = Math.min(sorted.length - 1, Math.max(Math.ceil((p / 100) * sorted.length) - 1, 0));
+  return sorted[index];
+}
+
+// 每轮并发发 concurrency 个请求、等全部返回再开下一轮：这是"批量并发"，不是恒定到达率，
+// 报告里要按这个口径读，不能当成持续压测的吞吐上限。
+async function burst(path, concurrency, rounds = CONCURRENCY_ROUNDS) {
+  const results = [];
+  const wallStart = performance.now();
+  for (let round = 0; round < rounds; round += 1) {
+    const batch = await Promise.all(
+      Array.from({ length: concurrency }, () => requestSafe(path)),
+    );
+    results.push(...batch);
+  }
+  const wallMs = Math.max(Math.round(performance.now() - wallStart), 1);
+  const times = results.map((item) => item.elapsedMs);
+  const failures = results.filter((item) => !item.ok);
+  const statusCounts = Object.fromEntries(
+    Object.entries(
+      results.reduce((acc, item) => {
+        const key = String(item.status ?? 'network-error');
+        acc[key] = (acc[key] ?? 0) + 1;
+        return acc;
+      }, {}),
+    ),
+  );
+  return {
+    concurrency,
+    rounds,
+    totalRequests: results.length,
+    wallMs,
+    throughputPerSecond: Math.round((results.length / (wallMs / 1000)) * 100) / 100,
+    medianMs: median(times),
+    p50Ms: percentile(times, 50),
+    p95Ms: percentile(times, 95),
+    maxMs: Math.max(...times),
+    minMs: Math.min(...times),
+    statusCounts,
+    failures: failures.length,
+    failureSample: failures[0] ? { status: failures[0].status, error: failures[0].error ?? null } : null,
+  };
 }
 
 const FILLER = [
@@ -411,6 +490,36 @@ console.log(
   `  加入 ${LONG_CHAPTER_CHARS} 字长章后：时间线 ${timelineAfterLong.medianMs}ms，提醒 ${longLastChapter.medianMs}ms`,
 );
 
+// 并发读：把"每请求把整部正典取进 Node"这条路径推到多个请求同时发生，
+// 看的是单实例的串行化程度与尾延迟，不是集群容量。
+const concurrencyCorpus = countQuery();
+const heavyPath = `/api/ledger/entries/${characterId}/timeline`;
+const lightPath = `/api/ledger/character-context?chapterId=${
+  chapterIds[Math.floor(chapterIds.length / 2)]
+}`;
+const concurrentReads = {
+  note: '客户端与被测 API 在同一台机器、由同一个 Node 进程发起；每轮并发等全部返回再开下一轮（批量并发，不是恒定到达率）。请求都复用同一个登录会话，不代表多用户/多工作区分布。',
+  levels: CONCURRENCY_LEVELS,
+  roundsPerLevel: CONCURRENCY_ROUNDS,
+  corpus: { chapters: concurrencyCorpus.chapters, canonChars: concurrencyCorpus.canon_chars },
+  apiRssMbBefore: apiRssMb(),
+  heavyScan: [],
+  lightRead: [],
+};
+for (const level of CONCURRENCY_LEVELS) {
+  const heavy = await burst(heavyPath, level);
+  const light = await burst(lightPath, level);
+  concurrentReads.heavyScan.push(heavy);
+  concurrentReads.lightRead.push(light);
+  console.log(
+    `  并发 ${level}：时间线 中位 ${heavy.medianMs}ms / p95 ${heavy.p95Ms}ms / 最大 ${heavy.maxMs}ms，` +
+      `${heavy.throughputPerSecond} req/s，失败 ${heavy.failures}` +
+      ` ｜ 角色卡 中位 ${light.medianMs}ms / p95 ${light.p95Ms}ms / 最大 ${light.maxMs}ms，` +
+      `${light.throughputPerSecond} req/s`,
+  );
+}
+concurrentReads.apiRssMbAfter = apiRssMb();
+
 const report = {
   generatedAt: new Date().toISOString(),
   base: BASE,
@@ -425,6 +534,8 @@ const report = {
     charsPerChapter: CHARS_PER_CHAPTER,
     longChapterChars: LONG_CHAPTER_CHARS,
     repeatsPerEndpoint: REPEATS,
+    concurrencyLevels: CONCURRENCY_LEVELS,
+    roundsPerConcurrencyLevel: CONCURRENCY_ROUNDS,
     automationRunner: '关闭（AUTOMATION_RUNNER=0，独立实例指向 yunshuo_test）',
   },
   baselineCounts: baseline,
@@ -441,6 +552,7 @@ const report = {
     timelineSamples: timelineAfterLong.samples,
     remindersMedianMs: longLastChapter.medianMs,
   },
+  concurrentReads,
   countsAfterRun: countQuery(),
   apiRssMb: apiRssMb(),
 };
