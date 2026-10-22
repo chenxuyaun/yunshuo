@@ -328,6 +328,10 @@ scripts/backup-db.sh
 docs/
 ```
 
+## 参与贡献
+
+欢迎提交 issue 与 PR。开发环境、测试库、迁移规则与必须遵守的领域不变量见 [CONTRIBUTING.md](CONTRIBUTING.md)。安全问题请按 [SECURITY.md](SECURITY.md) 私密报告，不要公开披露。
+
 ## 许可证
 
 [AGPL-3.0](LICENSE) © 2026 chenxuyaun
