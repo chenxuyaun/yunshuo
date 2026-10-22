@@ -127,6 +127,13 @@ suite('M2 修订 / 回滚 / 豁免', () => {
     await sql`DELETE FROM commits WHERE chapter_id = ${id}`;
     await sql`DELETE FROM commit_intents WHERE chapter_id = ${id}`;
     await sql`UPDATE canon_versions SET waiver_id = NULL WHERE chapter_id = ${id}`;
+    // 兜底：挂在别的章节名下、但指向本章某个版本的豁免记录（跨章归属用例会造出来）
+    // 会因外键挡住本章版本行的删除，先按目标版本清掉。
+    await sql`
+      DELETE FROM waivers
+      WHERE chapter_id <> ${id}
+        AND target_version_id IN (SELECT id FROM canon_versions WHERE chapter_id = ${id})
+    `;
     await sql`DELETE FROM waivers WHERE chapter_id = ${id}`;
     await sql`DELETE FROM canon_current WHERE chapter_id = ${id}`;
     await sql`UPDATE chapters SET current_version_id = NULL WHERE id = ${id}`;
@@ -996,6 +1003,476 @@ suite('M2 修订 / 回滚 / 豁免', () => {
     expect(Number(endTrace.evals)).toBe(Number(canonTrace.evals) + 3);
     expect(Number(endTrace.staged)).toBe(Number(canonTrace.staged) + 1);
     expect(Number(endTrace.failedIntents)).toBe(Number(canonTrace.failedIntents) + 1);
+  });
+
+  it('回滚前逐条复核：目标必须更早且属本章、正典且无人占租、豁免对得上且批准人独立', async () => {
+    const startedAt = new Date();
+
+    interface Trace {
+      versions: string;
+      waivers: string;
+      intents: string;
+      failedIntents: string;
+      commits: string;
+      canonCurrent: string;
+      leases: string;
+      events: string;
+      audits: string;
+      rollbackAudits: string;
+      rollbackEvents: string;
+      status: string;
+      currentVersionId: string | null;
+    }
+
+    async function trace(): Promise<Trace> {
+      const rows = await sql<Trace[]>`
+        SELECT
+          (SELECT count(*)::text FROM canon_versions WHERE chapter_id = ${chapterId}) AS versions,
+          (SELECT count(*)::text FROM waivers WHERE chapter_id = ${chapterId}) AS waivers,
+          (SELECT count(*)::text FROM commit_intents WHERE chapter_id = ${chapterId}) AS intents,
+          (SELECT count(*)::text FROM commit_intents
+             WHERE chapter_id = ${chapterId} AND status = 'failed') AS "failedIntents",
+          (SELECT count(*)::text FROM commits WHERE chapter_id = ${chapterId}) AS commits,
+          (SELECT count(*)::text FROM canon_current WHERE chapter_id = ${chapterId}) AS "canonCurrent",
+          (SELECT count(*)::text FROM chapter_leases WHERE chapter_id = ${chapterId}) AS leases,
+          (SELECT count(*)::text FROM events
+             WHERE aggregate_type = 'chapter' AND aggregate_id = ${chapterId}) AS events,
+          (SELECT count(*)::text FROM audit_log
+             WHERE object_id = ${chapterId} OR metadata ->> 'chapterId' = ${chapterId}) AS audits,
+          (SELECT count(*)::text FROM audit_log
+             WHERE object_id = ${chapterId} AND action = 'chapter.rollback') AS "rollbackAudits",
+          (SELECT count(*)::text FROM events
+             WHERE aggregate_id = ${chapterId} AND event_type = 'chapter.rolled_back') AS "rollbackEvents",
+          (SELECT status FROM chapters WHERE id = ${chapterId}) AS status,
+          (SELECT current_version_id::text FROM chapters WHERE id = ${chapterId}) AS "currentVersionId"
+      `;
+      return rows[0]!;
+    }
+
+    const rollbackPath = `/api/chapters/${chapterId}/rollback`;
+    const waiversPath = `/api/chapters/${chapterId}/waivers`;
+    const revisionPath = `/api/chapters/${chapterId}/revision`;
+    const abandonPath = `/api/chapters/${chapterId}/revision/abandon`;
+
+    function guardKey(name: string): string {
+      return `m2-rb-guard-${name}-${randomUUID().slice(0, 8)}`;
+    }
+
+    function messageOf(result: ApiResult<unknown>): string {
+      return (result.body as ErrorBody).error.message;
+    }
+
+    function detailsOf(result: ApiResult<unknown>): unknown {
+      return (result.body as ErrorBody).error.details;
+    }
+
+    let ledger = await trace();
+
+    // 每拒一次都重算全表痕迹：除了那条"被拒的意图"必须留下（带错误码，供事后追查），
+    // 版本、豁免、提交、指针、租约、事件与审计都不许动。
+    async function refused(
+      result: ApiResult<unknown>,
+      status: number,
+      code: string,
+      intent: 'intent' | 'none',
+    ): Promise<void> {
+      expectError(result, status, code);
+      const after = await trace();
+      expect({ ...after, intents: ledger.intents, failedIntents: ledger.failedIntents }).toEqual(
+        ledger,
+      );
+      if (intent === 'intent') {
+        expect(Number(after.intents)).toBe(Number(ledger.intents) + 1);
+        expect(Number(after.failedIntents)).toBe(Number(ledger.failedIntents) + 1);
+      } else {
+        expect(after.intents).toBe(ledger.intents);
+        expect(after.failedIntents).toBe(ledger.failedIntents);
+      }
+      ledger = after;
+    }
+
+    async function settle(): Promise<Trace> {
+      ledger = await trace();
+      return ledger;
+    }
+
+    // 起点：上一个用例放弃修订后，章节仍是正典、指针还指第 6 版
+    const entry = await settle();
+    expect(entry.status).toBe('canon');
+    expect(entry.leases).toBe('0');
+    if (!entry.currentVersionId) throw new Error('测试章节缺少当前正典版本，无法验证回滚复核');
+    const currentVersionId = entry.currentVersionId;
+
+    // ① 目标版本必须属于本章：拿别的章节一个真实存在的版本 id 来，FK 拦得住但服务也要拦住，
+    //    而且拒绝只说"不存在或不属于本章"，不泄露它其实在别的工作区章节里。
+    const foreignRows = await sql<{ id: string }[]>`
+      SELECT v.id FROM canon_versions v
+      WHERE v.chapter_id <> ${chapterId}
+      ORDER BY v.chapter_id, v.version_no
+      LIMIT 1
+    `;
+    const foreignVersionId = foreignRows[0]?.id;
+    if (!foreignVersionId) throw new Error('测试库缺少其他章节的正典版本，无法验证跨章隔离');
+    const crossChapter = await rollback({
+      cookie: owner.cookie,
+      idempotencyKey: guardKey('other-chapter'),
+      targetVersionId: foreignVersionId,
+      expectedCurrentVersionId: currentVersionId,
+      reason: '别的章节的正典版本不能当本章的回滚目标',
+    });
+    await refused(crossChapter, 404, 'VERSION_NOT_FOUND', 'intent');
+    expect(messageOf(crossChapter)).toBe('目标版本不存在或不属于本章');
+
+    // ② 目标就是当前正典：没有"回滚到自己"这种空转
+    const targetCurrent = await rollback({
+      cookie: owner.cookie,
+      idempotencyKey: guardKey('target-current'),
+      targetVersionId: currentVersionId,
+      expectedCurrentVersionId: currentVersionId,
+      reason: '目标就是当前正典',
+    });
+    await refused(targetCurrent, 409, 'ROLLBACK_TARGET_CURRENT', 'intent');
+    expect(messageOf(targetCurrent)).toBe('目标版本就是当前正典，无需回滚');
+
+    // ③ 指针已变化：乐观并发先拒，并把真正的当前版本回给客户端刷新界面
+    const concurrent = await rollback({
+      cookie: owner.cookie,
+      idempotencyKey: guardKey('concurrent'),
+      targetVersionId: v1Id,
+      expectedCurrentVersionId: v3Id,
+      reason: '客户端还以为当前是第 3 版',
+    });
+    await refused(concurrent, 409, 'CONCURRENT_COMMIT', 'intent');
+    expect(messageOf(concurrent)).toBe('当前正典版本已变化，请刷新后重试');
+    expect(detailsOf(concurrent)).toEqual({ currentVersionId });
+
+    // ④ 只能回滚到更早的版本：手工塞一个版本号更大的版本行，钉住比较用的是 >=，
+    //    同版本号也拒（回滚到"同一版"没有意义）。脚手架用完自己收尾。
+    const scaffold = await settle();
+    const futureId = randomUUID();
+    const futureKey = guardKey('not-prior');
+    const futureContent = `${contentB}\n\n这一段是为验证"只能回滚到更早版本"手工塞进库的假未来版本。`;
+    await sql`
+      INSERT INTO canon_versions (
+        id, chapter_id, version_no, content, content_hash, word_count,
+        parent_version_id, source, actor_id
+      )
+      VALUES (
+        ${futureId}, ${chapterId}, 99, ${futureContent},
+        ${sha256(futureContent)}, ${countWords(futureContent)}, ${currentVersionId}, 'human',
+        ${owner.me.user.id}
+      )
+    `;
+    await settle();
+    const notPrior = await rollback({
+      cookie: owner.cookie,
+      idempotencyKey: futureKey,
+      targetVersionId: futureId,
+      expectedCurrentVersionId: currentVersionId,
+      reason: '版本号比当前还大的目标不能回滚',
+    });
+    await refused(notPrior, 409, 'ROLLBACK_TARGET_NOT_PRIOR', 'intent');
+    expect(messageOf(notPrior)).toBe('只能回滚到更早的正典版本');
+    // 假版本行被自己留下的意图行外键引用着（RESTRICT），先删意图再删版本；
+    // 于是这一条是唯一没有留在失败意图账上的拒绝。
+    await sql`DELETE FROM commit_intents WHERE idempotency_key = ${futureKey}`;
+    await sql`DELETE FROM canon_versions WHERE id = ${futureId}`;
+    expect(await trace()).toEqual(scaffold);
+    ledger = scaffold;
+
+    // ⑤ 有人正拿着租约时不能回滚：先让状态检查过，再撞租约闸
+    const beforeLease = await settle();
+    await sql`
+      INSERT INTO chapter_leases (chapter_id, user_id, acquired_at, expires_at)
+      VALUES (${chapterId}, ${author.me.user.id}, now(), now() + ${'10 minutes'}::interval)
+    `;
+    const withLease = await settle();
+    expect(Number(withLease.leases)).toBe(Number(beforeLease.leases) + 1);
+    const leaseHeld = await rollback({
+      cookie: owner.cookie,
+      idempotencyKey: guardKey('lease-held'),
+      targetVersionId: v1Id,
+      expectedCurrentVersionId: currentVersionId,
+      reason: '作者正在编辑这一章',
+    });
+    await refused(leaseHeld, 409, 'LEASE_HELD', 'intent');
+    expect(messageOf(leaseHeld)).toBe(`章节租约由 ${author.me.user.name} 持有，不能回滚`);
+    const heldDetails = detailsOf(leaseHeld) as { holder: string; expiresAt: string };
+    expect(heldDetails.holder).toBe(author.me.user.name);
+    expect(new Date(heldDetails.expiresAt).getTime()).toBeGreaterThan(Date.now());
+
+    // ⑥ 过期租约不算占用：一路走到"目标没有门禁证据"才停，说明挡住的是活的占用而不是历史行
+    await sql`DELETE FROM chapter_leases WHERE chapter_id = ${chapterId}`;
+    await sql`
+      INSERT INTO chapter_leases (chapter_id, user_id, acquired_at, expires_at)
+      VALUES (${chapterId}, ${author.me.user.id}, now() - interval '20 minutes', now() - interval '10 minutes')
+    `;
+    await settle();
+    const staleLease = await rollback({
+      cookie: owner.cookie,
+      idempotencyKey: guardKey('lease-expired'),
+      targetVersionId: v1Id,
+      expectedCurrentVersionId: currentVersionId,
+      reason: '过期租约不该挡住回滚复核',
+    });
+    await refused(staleLease, 409, 'ROLLBACK_EVIDENCE_REQUIRED', 'intent');
+    await sql`DELETE FROM chapter_leases WHERE chapter_id = ${chapterId}`;
+    const afterLeasePhase = await settle();
+    expect(afterLeasePhase.leases).toBe(beforeLease.leases);
+    expect(afterLeasePhase.currentVersionId).toBe(currentVersionId);
+
+    // ⑦ 非正典状态两侧都拒：修订中既不能申请回滚豁免，也不能直接回滚。
+    //    状态检查排在租约检查之前——此时发起者手上就有活租约，文案说的仍是状态。
+    const started = await call<StartRevisionResponse>(owner.cookie, 'POST', revisionPath);
+    expect(started.status).toBe(200);
+    expect(started.body.status).toBe('revision');
+    await settle();
+    const waiverNotCanon = await call<ErrorBody>(author.cookie, 'POST', waiversPath, {
+      targetVersionId: v1Id,
+      gateKey: 'rollback',
+      reason: '修订中不能申请回滚豁免',
+    });
+    await refused(waiverNotCanon, 409, 'CHAPTER_NOT_CANON', 'none');
+    expect(messageOf(waiverNotCanon)).toBe('只有正典章节可以申请回滚豁免');
+    const rollbackNotCanon = await rollback({
+      cookie: owner.cookie,
+      idempotencyKey: guardKey('not-canon'),
+      targetVersionId: v1Id,
+      expectedCurrentVersionId: currentVersionId,
+      reason: '修订中不能直接回滚',
+    });
+    await refused(rollbackNotCanon, 409, 'CHAPTER_NOT_CANON', 'intent');
+    expect(messageOf(rollbackNotCanon)).toBe('章节当前状态 revision，不能回滚正典');
+
+    const abandoned = await call<AbandonRevisionResponse>(owner.cookie, 'POST', abandonPath);
+    expect(abandoned.status).toBe(200);
+    const canonAgain = await settle();
+    expect(canonAgain.status).toBe('canon');
+    expect(canonAgain.leases).toBe('0');
+    expect(canonAgain.currentVersionId).toBe(currentVersionId);
+
+    // ⑧ M2 只开 rollback 一个豁免口子：契约收六种门禁键，服务端只认回滚，
+    //    这一枪在事务之前就被拒，连一条意图都不该留。
+    const unsupported = await call<ErrorBody>(author.cookie, 'POST', waiversPath, {
+      targetVersionId: v1Id,
+      gateKey: 'ai_tone',
+      reason: '其余门禁不提供豁免入口',
+    });
+    await refused(unsupported, 400, 'WAIVER_GATE_UNSUPPORTED', 'none');
+    expect(messageOf(unsupported)).toBe('M2 仅支持回滚豁免（rollback）；其余门禁不提供豁免入口');
+
+    // ⑨ 回滚时的豁免复核按 gate → 目标 → 状态 → 批准人 → 是否用过 的顺序来。
+    //    查不到就是"不存在或不属于本章"，不区分幽灵 id 与别的章节的豁免。
+    const ghostWaiver = await rollback({
+      cookie: owner.cookie,
+      idempotencyKey: guardKey('waiver-ghost'),
+      targetVersionId: v1Id,
+      expectedCurrentVersionId: currentVersionId,
+      reason: '拿一条不存在的豁免来回滚',
+      waiverId: randomUUID(),
+    });
+    await refused(ghostWaiver, 404, 'WAIVER_NOT_FOUND', 'intent');
+    expect(messageOf(ghostWaiver)).toBe('回滚豁免不存在或不属于本章');
+
+    // 目标不符：这条豁免是给 v2 申请的，还没批准就被目标检查拦下（顺序证据）
+    const forV2 = await call<WaiverView>(author.cookie, 'POST', waiversPath, {
+      targetVersionId: v2Id,
+      gateKey: 'rollback',
+      reason: '给 v2 申请的豁免，用来验证目标不一致',
+    });
+    expect(forV2.status).toBe(200);
+    expect(forV2.body.status).toBe('pending');
+    await settle();
+    const targetMismatch = await rollback({
+      cookie: owner.cookie,
+      idempotencyKey: guardKey('waiver-target'),
+      targetVersionId: v1Id,
+      expectedCurrentVersionId: currentVersionId,
+      reason: '豁免对应的是别的版本',
+      waiverId: forV2.body.id,
+    });
+    await refused(targetMismatch, 409, 'WAIVER_TARGET_MISMATCH', 'intent');
+    expect(messageOf(targetMismatch)).toBe('该豁免对应的目标版本不是本次回滚版本');
+
+    // v1 上那条豁免已经在第 3 个用例用掉了：用掉的不挡住重新申请，新申请仍是 pending
+    const forV1 = await call<WaiverView>(author.cookie, 'POST', waiversPath, {
+      targetVersionId: v1Id,
+      gateKey: 'rollback',
+      reason: '旧豁免已用过，允许重新申请一条',
+    });
+    expect(forV1.status).toBe(200);
+    expect(forV1.body.id).not.toBe(waiverId);
+    const afterRequests = await settle();
+    expect(Number(afterRequests.waivers)).toBe(Number(canonAgain.waivers) + 2);
+    const pendingRollback = await rollback({
+      cookie: owner.cookie,
+      idempotencyKey: guardKey('waiver-pending'),
+      targetVersionId: v1Id,
+      expectedCurrentVersionId: currentVersionId,
+      reason: '待审批的豁免不能用来回滚',
+      waiverId: forV1.body.id,
+    });
+    await refused(pendingRollback, 409, 'WAIVER_NOT_APPROVED', 'intent');
+    expect(messageOf(pendingRollback)).toBe('该豁免状态为 pending，不能用于回滚');
+
+    // ⑩ 批准人独立性在服务端复核：手工伪造出一条"approved"记录也过不去。
+    //    申请人自己当批准人 → 拒；根本没有批准人 → 同一句拒。
+    await sql`
+      UPDATE waivers
+      SET status = 'approved', approved_by = ${author.me.user.id},
+          decided_by = ${author.me.user.id}, decided_at = now()
+      WHERE id = ${forV1.body.id}
+    `;
+    const selfApproved = await rollback({
+      cookie: owner.cookie,
+      idempotencyKey: guardKey('waiver-selfapproved'),
+      targetVersionId: v1Id,
+      expectedCurrentVersionId: currentVersionId,
+      reason: '伪造出申请人自批的记录',
+      waiverId: forV1.body.id,
+    });
+    await refused(selfApproved, 409, 'WAIVER_INVALID', 'intent');
+    expect(messageOf(selfApproved)).toBe('豁免缺少独立批准人，不能用于回滚');
+
+    await sql`UPDATE waivers SET approved_by = NULL WHERE id = ${forV1.body.id}`;
+    const noApprover = await rollback({
+      cookie: owner.cookie,
+      idempotencyKey: guardKey('waiver-noapprover'),
+      targetVersionId: v1Id,
+      expectedCurrentVersionId: currentVersionId,
+      reason: '伪造出没有批准人的记录',
+      waiverId: forV1.body.id,
+    });
+    await refused(noApprover, 409, 'WAIVER_INVALID', 'intent');
+
+    // ⑪ 不是回滚豁免就不能用于回滚：gate_key 允许六种值，但复核只认 rollback，
+    //    而且它排在目标与状态之前——先把批准人补成独立的人，仍然被 gate 拦下。
+    await sql`
+      UPDATE waivers SET gate_key = 'ai_tone', approved_by = ${lead.me.user.id}
+      WHERE id = ${forV1.body.id}
+    `;
+    const gateMismatch = await rollback({
+      cookie: owner.cookie,
+      idempotencyKey: guardKey('waiver-gate'),
+      targetVersionId: v1Id,
+      expectedCurrentVersionId: currentVersionId,
+      reason: '拿别的门禁的豁免来回滚',
+      waiverId: forV1.body.id,
+    });
+    await refused(gateMismatch, 409, 'WAIVER_GATE_MISMATCH', 'intent');
+    expect(messageOf(gateMismatch)).toBe('该豁免不是回滚豁免');
+
+    // ⑫ 跨章归属：在别的章节名下造一条"看起来完全合格"的豁免（同目标版本、已批准、
+    //     批准人还独立），本章回滚也花不掉——复核先按本章过滤，读不到就是 404，
+    //     而不是"找到了但条件不符"。
+    const otherChapterRows = await sql<{ id: string }[]>`
+      SELECT id FROM chapters WHERE id <> ${chapterId} AND status = 'canon' ORDER BY number LIMIT 1
+    `;
+    const otherChapterId = otherChapterRows[0]?.id;
+    if (!otherChapterId) throw new Error('测试库缺少其他章节，无法验证豁免记录的跨章归属');
+    const foreignWaiverId = randomUUID();
+    await sql`
+      INSERT INTO waivers (
+        id, chapter_id, target_version_id, gate_key, reason, status, requested_by, approved_by
+      )
+      VALUES (
+        ${foreignWaiverId}, ${otherChapterId}, ${v1Id}, 'rollback', '别的章节名下已批准的豁免',
+        'approved', ${owner.me.user.id}, ${lead.me.user.id}
+      )
+    `;
+    const foreignWaiver = await rollback({
+      cookie: owner.cookie,
+      idempotencyKey: guardKey('waiver-other-chapter'),
+      targetVersionId: v1Id,
+      expectedCurrentVersionId: currentVersionId,
+      reason: '拿别的章节的豁免来回滚本章',
+      waiverId: foreignWaiverId,
+    });
+    await refused(foreignWaiver, 404, 'WAIVER_NOT_FOUND', 'intent');
+    expect(messageOf(foreignWaiver)).toBe('回滚豁免不存在或不属于本章');
+    // 收尾要防住一种情况：若这道归属守卫被改坏，这条豁免会被真的花掉并留下引用
+    await sql`UPDATE canon_versions SET waiver_id = NULL WHERE waiver_id = ${foreignWaiverId}`;
+    await sql`DELETE FROM waivers WHERE id = ${foreignWaiverId}`;
+
+    // 本节手工造的豁免记录自己收尾（事件与审计是真实历史，留着不删）
+    await sql`
+      DELETE FROM waivers WHERE id IN (${forV1.body.id}, ${forV2.body.id})
+    `;
+    const afterCleanup = await settle();
+    expect(afterCleanup.waivers).toBe(entry.waivers);
+
+    // ⑬ 十六次拒绝合起来的账：正典版本一个没多、提交一条没建、指针与状态原地不动、
+    //     回滚审计与回滚事件零增量；只有确实成功的动作（两次豁免申请 + 进入/放弃修订）留下历史。
+    const end = await trace();
+    expect(end.status).toBe('canon');
+    expect(end.currentVersionId).toBe(currentVersionId);
+    expect(end.versions).toBe(entry.versions);
+    expect(end.commits).toBe(entry.commits);
+    expect(end.canonCurrent).toBe(entry.canonCurrent);
+    expect(end.leases).toBe(entry.leases);
+    expect(end.rollbackAudits).toBe(entry.rollbackAudits);
+    expect(end.rollbackEvents).toBe(entry.rollbackEvents);
+    expect(Number(end.events)).toBe(Number(entry.events) + 4);
+    expect(Number(end.audits)).toBe(Number(entry.audits) + 4);
+    expect(Number(end.intents)).toBe(Number(entry.intents) + 13);
+    expect(Number(end.failedIntents)).toBe(Number(entry.failedIntents) + 13);
+
+    // 事件与审计只增长在确实成功的动作上：两次豁免申请、进入修订、放弃修订。
+    // 十六次拒绝一条事件与审计都不留——带意图的那十三次只在 commit_intents 上留失败码。
+    // 豁免的审计记在 waiver 对象上、章节 id 藏在 metadata 里，所以两种归因都要算进来。
+    const history = await sql<{ kind: string; n: string }[]>`
+      SELECT kind, count(*)::text AS n FROM (
+        SELECT 'event:' || event_type AS kind FROM events
+          WHERE aggregate_id = ${chapterId} AND created_at >= ${startedAt}
+        UNION ALL
+        SELECT 'audit:' || action AS kind FROM audit_log
+          WHERE (object_id = ${chapterId} OR metadata ->> 'chapterId' = ${chapterId})
+            AND created_at >= ${startedAt}
+      ) t GROUP BY kind
+    `;
+    expect(Object.fromEntries(history.map((row) => [row.kind, row.n]))).toEqual({
+      'event:waiver.requested': '2',
+      'audit:waiver.request': '2',
+      'event:chapter.revision_started': '1',
+      'audit:chapter.revision.start': '1',
+      'event:chapter.revision_abandoned': '1',
+      'audit:chapter.revision.abandon': '1',
+    });
+
+    // 每一次带意图的拒绝都在账上留下自己的错误码，事后能分清被拒的原因
+    const codes = await sql<{ error_code: string | null; n: string }[]>`
+      SELECT error_code, count(*)::text AS n FROM commit_intents
+      WHERE chapter_id = ${chapterId} AND status = 'failed'
+        AND idempotency_key LIKE 'm2-rb-guard-%'
+      GROUP BY error_code
+    `;
+    expect(
+      codes.map((row) => [row.error_code, row.n]).sort((a, b) => String(a).localeCompare(String(b))),
+    ).toEqual(
+      [
+        ['CHAPTER_NOT_CANON', '1'],
+        ['CONCURRENT_COMMIT', '1'],
+        ['LEASE_HELD', '1'],
+        ['ROLLBACK_EVIDENCE_REQUIRED', '1'],
+        ['ROLLBACK_TARGET_CURRENT', '1'],
+        ['VERSION_NOT_FOUND', '1'],
+        ['WAIVER_GATE_MISMATCH', '1'],
+        ['WAIVER_INVALID', '2'],
+        ['WAIVER_NOT_APPROVED', '1'],
+        ['WAIVER_NOT_FOUND', '2'],
+        ['WAIVER_TARGET_MISMATCH', '1'],
+      ].sort((a, b) => String(a).localeCompare(String(b))),
+    );
+
+    // 界面上读到的仍是第 6 版正典；豁免列表只剩本节开始时就有的两条——
+    // 第 3 个用例批准并已使用的那条，和它驳回的那条。本节手工申请的两条已收尾，
+    // 伪造出来的 approved / ai_tone 状态没有一条留在视图里。
+    const detail = await getChapter(owner.cookie);
+    expect(detail.currentVersion?.versionNo).toBe(6);
+    expect(detail.waivers.map((waiver) => waiver.status).sort()).toEqual(['approved', 'rejected']);
+    const used = detail.waivers.find((waiver) => waiver.id === waiverId);
+    expect(used?.status).toBe('approved');
+    expect(used?.targetVersionId).toBe(v1Id);
   });
 });
 
