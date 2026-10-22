@@ -511,6 +511,8 @@ export async function loadGateHints(input: {
       continue;
     }
     const inWindow =
+      payload.state !== 'paid_off' &&
+      payload.state !== 'abandoned' &&
       (payload.payoffChapterMin === null ||
         input.chapterNumber >= payload.payoffChapterMin) &&
       (payload.payoffChapterMax === null ||

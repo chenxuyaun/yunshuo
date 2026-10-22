@@ -841,7 +841,7 @@ export async function searchCanon(input: SearchCanonInput): Promise<CanonSearchO
     ledgerCoverage.activeEntries === 0
       ? '当前范围没有已发布的设定、角色或伏笔条目'
       : ledgerCoverage.chunks === 0
-        ? '账本条目尚未建立索引；配置嵌入服务并重建索引后可在检索中命中'
+        ? '账本条目尚未建立索引；请查看账本索引状态，必要时配置嵌入服务并重建索引'
         : ledgerCoverage.chunks > ledgerCoverage.vectorChunks
           ? '部分账本条目只有词法索引，没有可用的向量索引（未配置嵌入服务或尚未完成索引）；这些条目仅支持词法检索'
           : null;

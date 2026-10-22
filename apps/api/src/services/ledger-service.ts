@@ -827,7 +827,7 @@ export async function saveLedgerDraft(
     const entry = await loadEntryForUpdate(tx, workspaceId, entryId);
     if (!entry) throw notFound('LEDGER_ENTRY_NOT_FOUND', '账本条目不存在或不属于当前工作区');
     if (entry.status === 'archived') {
-      throw conflict('LEDGER_ENTRY_ARCHIVED', '已归档条目不能编辑；请先恢复');
+      throw conflict('LEDGER_ENTRY_ARCHIVED', '已归档条目不能编辑；归档不可撤销，请新建条目重新登记');
     }
     if (entry.draft_version_id !== input.expectedDraftVersionId) {
       throw conflict(
@@ -941,7 +941,7 @@ export async function publishLedgerEntry(
     const entry = await loadEntryForUpdate(tx, workspaceId, entryId);
     if (!entry) throw notFound('LEDGER_ENTRY_NOT_FOUND', '账本条目不存在或不属于当前工作区');
     if (entry.status === 'archived') {
-      throw conflict('LEDGER_ENTRY_ARCHIVED', '已归档条目不能发布；请先恢复');
+      throw conflict('LEDGER_ENTRY_ARCHIVED', '已归档条目不能发布；归档不可撤销，请新建条目重新登记');
     }
     if (!entry.draft_version_id) {
       throw conflict('LEDGER_NO_DRAFT', '没有待发布的草稿');
@@ -983,19 +983,26 @@ export async function publishLedgerEntry(
     const previousVersion = entry.current_version_id
       ? await loadVersionById(tx, workspaceId, entryId, entry.current_version_id)
       : null;
-    await tx`
-      UPDATE ledger_entries SET
-        current_version_id = ${entry.draft_version_id},
-        draft_version_id = NULL,
-        status = 'active',
-        name = ${snapshot.name},
-        aliases = ${snapshot.aliases},
-        summary = ${snapshot.summary},
-        source_chapter_id = ${snapshot.sourceChapterId},
-        updated_by = ${auth.user.id},
-        updated_at = now()
-      WHERE id = ${entryId} AND workspace_id = ${workspaceId}
-    `;
+    try {
+      await tx`
+        UPDATE ledger_entries SET
+          current_version_id = ${entry.draft_version_id},
+          draft_version_id = NULL,
+          status = 'active',
+          name = ${snapshot.name},
+          aliases = ${snapshot.aliases},
+          summary = ${snapshot.summary},
+          source_chapter_id = ${snapshot.sourceChapterId},
+          updated_by = ${auth.user.id},
+          updated_at = now()
+        WHERE id = ${entryId} AND workspace_id = ${workspaceId}
+      `;
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        throw conflict('LEDGER_NAME_CONFLICT', '名称或别名与已有条目冲突');
+      }
+      throw error;
+    }
     if (kind === 'setting') {
       await tx`
         UPDATE workspaces SET settings_version = settings_version + 1
@@ -1104,7 +1111,7 @@ export async function rollbackLedgerEntry(
     const entry = await loadEntryForUpdate(tx, workspaceId, entryId);
     if (!entry) throw notFound('LEDGER_ENTRY_NOT_FOUND', '账本条目不存在或不属于当前工作区');
     if (entry.status === 'archived') {
-      throw conflict('LEDGER_ENTRY_ARCHIVED', '已归档条目不能回滚；请先恢复');
+      throw conflict('LEDGER_ENTRY_ARCHIVED', '已归档条目不能回滚；归档不可撤销，请新建条目重新登记');
     }
     if (entry.draft_version_id !== input.expectedDraftVersionId) {
       throw conflict(
@@ -1133,17 +1140,24 @@ export async function rollbackLedgerEntry(
       )
     `;
     if (entry.status === 'draft' && !entry.current_version_id) {
-      await tx`
-        UPDATE ledger_entries SET
-          name = ${target.snapshot.name},
-          aliases = ${target.snapshot.aliases},
-          summary = ${target.snapshot.summary},
-          source_chapter_id = ${target.snapshot.sourceChapterId},
-          draft_version_id = ${versionId},
-          updated_by = ${auth.user.id},
-          updated_at = now()
-        WHERE id = ${entryId} AND workspace_id = ${workspaceId}
-      `;
+      try {
+        await tx`
+          UPDATE ledger_entries SET
+            name = ${target.snapshot.name},
+            aliases = ${target.snapshot.aliases},
+            summary = ${target.snapshot.summary},
+            source_chapter_id = ${target.snapshot.sourceChapterId},
+            draft_version_id = ${versionId},
+            updated_by = ${auth.user.id},
+            updated_at = now()
+          WHERE id = ${entryId} AND workspace_id = ${workspaceId}
+        `;
+      } catch (error) {
+        if (isUniqueViolation(error)) {
+          throw conflict('LEDGER_NAME_CONFLICT', '名称或别名与已有条目冲突');
+        }
+        throw error;
+      }
     } else {
       await tx`
         UPDATE ledger_entries SET
