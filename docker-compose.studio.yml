@@ -1,0 +1,151 @@
+name: yunshuo-studio
+
+# 本地/单机 Studio 全栈：db、一次性迁移、首个所有者初始化、api、worker、web。
+# 用法（在仓库根目录）：
+#   cp .env.studio.example .env.studio
+#   docker compose --env-file .env.studio -f docker-compose.studio.yml up -d --build
+# 只有 web 暴露端口；db 与 api 不对宿主机开放。
+
+x-api-image: &api-image
+  image: yunshuo-studio-api:local
+  build:
+    context: .
+    dockerfile: deploy/api.Dockerfile
+
+x-database-url: &database-url
+  DATABASE_URL: postgres://yunshuo:${STUDIO_DB_PASSWORD:?请在 .env.studio 设置 STUDIO_DB_PASSWORD（仅限 URL 安全字符）}@db:5432/yunshuo
+
+# Linux 上也能用 host.docker.internal 访问宿主机的本机 Ollama。
+x-host-gateway: &host-gateway
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+
+x-api-env: &api-env
+  NODE_ENV: production
+  <<: *database-url
+  API_HOST: 0.0.0.0
+  API_PORT: "3000"
+  TRUST_PROXY: "1"
+  SESSION_SECRET: ${STUDIO_SESSION_SECRET:?请在 .env.studio 设置 STUDIO_SESSION_SECRET}
+  MODEL_KEY_SECRET: ${STUDIO_MODEL_KEY_SECRET:?请在 .env.studio 设置独立的 STUDIO_MODEL_KEY_SECRET}
+  WEB_ORIGIN: ${STUDIO_PUBLIC_ORIGIN:-http://localhost:8088}
+  MAIL_MODE: ${STUDIO_MAIL_MODE:-off}
+  MAIL_HOST: ${STUDIO_MAIL_HOST:-}
+  MAIL_PORT: ${STUDIO_MAIL_PORT:-587}
+  MAIL_SECURE: ${STUDIO_MAIL_SECURE:-0}
+  MAIL_USER: ${STUDIO_MAIL_USER:-}
+  MAIL_PASSWORD: ${STUDIO_MAIL_PASSWORD:-}
+  MAIL_FROM: "${STUDIO_MAIL_FROM:-云说 <no-reply@yunshuo.local>}"
+  OIDC_ISSUER: ${STUDIO_OIDC_ISSUER:-}
+  OIDC_CLIENT_ID: ${STUDIO_OIDC_CLIENT_ID:-}
+  OIDC_CLIENT_SECRET: ${STUDIO_OIDC_CLIENT_SECRET:-}
+  OIDC_REDIRECT_URI: ${STUDIO_OIDC_REDIRECT_URI:-}
+  OIDC_SCOPES: ${STUDIO_OIDC_SCOPES:-openid email profile}
+  OIDC_PROVIDER_NAME: ${STUDIO_OIDC_PROVIDER_NAME:-企业 SSO}
+  OIDC_AUTO_PROVISION: ${STUDIO_OIDC_AUTO_PROVISION:-0}
+  AUTOMATION_RUNNER: ${STUDIO_AUTOMATION_RUNNER:-1}
+  AUTOMATION_POLL_MS: ${STUDIO_AUTOMATION_POLL_MS:-2000}
+  LOG_LEVEL: ${STUDIO_LOG_LEVEL:-info}
+
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    container_name: yunshuo-studio-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: yunshuo
+      POSTGRES_PASSWORD: ${STUDIO_DB_PASSWORD:?请在 .env.studio 设置 STUDIO_DB_PASSWORD}
+      POSTGRES_DB: yunshuo
+    volumes:
+      - studio_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U yunshuo -d yunshuo"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  migrate:
+    <<: *api-image
+    restart: "no"
+    command: ["pnpm", "--filter", "@yunshuo/db", "migrate"]
+    environment:
+      NODE_ENV: production
+      <<: *database-url
+      LOG_LEVEL: ${STUDIO_LOG_LEVEL:-info}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  bootstrap:
+    <<: *api-image
+    restart: "no"
+    command: ["pnpm", "--filter", "@yunshuo/api", "bootstrap"]
+    environment:
+      NODE_ENV: production
+      <<: *database-url
+      BOOTSTRAP_OWNER_EMAIL: ${BOOTSTRAP_OWNER_EMAIL:?请在 .env.studio 设置 BOOTSTRAP_OWNER_EMAIL}
+      # 首次创建所有者时必须填写；已有所有者后可以留空，bootstrap 会跳过而不校验密码。
+      BOOTSTRAP_OWNER_PASSWORD: ${BOOTSTRAP_OWNER_PASSWORD:-}
+      BOOTSTRAP_OWNER_NAME: ${BOOTSTRAP_OWNER_NAME:-所有者}
+      BOOTSTRAP_WORKSPACE_NAME: ${BOOTSTRAP_WORKSPACE_NAME:-云说工作区}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  api:
+    <<: [*api-image, *host-gateway]
+    restart: unless-stopped
+    environment: *api-env
+    expose:
+      - "3000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      bootstrap:
+        condition: service_completed_successfully
+
+  worker:
+    <<: [*api-image, *host-gateway]
+    restart: unless-stopped
+    command: ["pnpm", "--filter", "@yunshuo/worker", "start"]
+    environment:
+      NODE_ENV: production
+      <<: *database-url
+      MODEL_KEY_SECRET: ${STUDIO_MODEL_KEY_SECRET:?请在 .env.studio 设置独立的 STUDIO_MODEL_KEY_SECRET}
+      LOG_LEVEL: ${STUDIO_LOG_LEVEL:-info}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    image: yunshuo-studio-web:local
+    build:
+      context: .
+      dockerfile: deploy/web.Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${STUDIO_HTTP_PORT:-8088}:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/healthz | grep -q ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  studio_pgdata:
+    name: yunshuo_studio_pgdata

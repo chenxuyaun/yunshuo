@@ -1,0 +1,25 @@
+{
+  "description": "云说 demo 正典检索评估查询集。查询自拟，期望章节只用于回归对比，不代表真实读者查询分布。负例含 2 条域外对照与 6 条近域/混合对照，用于暴露相似度下限的边界，不参与阈值选择。",
+  "k": 8,
+  "queries": [
+    { "q": "更鼓 木栅", "expectChapter": 1, "note": "第1章独有物件" },
+    { "q": "血线 指尖", "expectChapter": 1, "note": "第1章动作细节" },
+    { "q": "灯火 整条街", "expectChapter": 1, "note": "第1章场景" },
+    { "q": "木刺 血珠", "expectChapter": 2, "note": "第2章动作细节" },
+    { "q": "祭坛 铜钉", "expectChapter": 2, "note": "第2章设定物件" },
+    { "q": "符纸 木刺 血珠", "expectChapter": 2, "note": "第2章多词组合" },
+    { "q": "铜锈 裂纹", "expectChapter": 3, "note": "第3章关键线索" },
+    { "q": "石板 雨停", "expectChapter": 3, "note": "第3章场景" },
+    { "q": "门闩 深井", "expectChapter": 4, "note": "第4章独有物件" },
+    { "q": "脚踝 缝隙", "expectChapter": 4, "note": "第4章动作细节" },
+    { "q": "门板 门闩 缝隙", "expectChapter": 4, "note": "第4章多词组合" },
+    { "q": "星际飞船 量子引擎", "expectChapter": null, "note": "域外对照：无正典词汇" },
+    { "q": "咖啡机 拉花", "expectChapter": null, "note": "域外对照：无正典词汇" },
+    { "q": "咖啡馆 拿铁", "expectChapter": null, "note": "近域对照：现代物件，无正典内容" },
+    { "q": "雨夜 咖啡馆", "expectChapter": null, "note": "近域对照：同题材氛围词，无对应情节" },
+    { "q": "手机 充电", "expectChapter": null, "note": "近域对照：现代物件，无正典内容" },
+    { "q": "魔法学院 期末考试", "expectChapter": null, "note": "近域对照：幻想题材，无正典内容" },
+    { "q": "剑 魔法", "expectChapter": null, "note": "近域对照：幻想题材，无正典内容" },
+    { "q": "林默 咖啡", "expectChapter": null, "note": "混合对照：含正典人物，但无咖啡情节" }
+  ]
+}

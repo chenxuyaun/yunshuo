@@ -1,0 +1,20 @@
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    container_name: yunshuo-db
+    environment:
+      POSTGRES_USER: yunshuo
+      POSTGRES_PASSWORD: yunshuo
+      POSTGRES_DB: yunshuo
+    ports:
+      - "5433:5432"
+    volumes:
+      - yunshuo_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U yunshuo -d yunshuo"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  yunshuo_pgdata:

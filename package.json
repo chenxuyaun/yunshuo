@@ -1,0 +1,25 @@
+{
+  "name": "yunshuo",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "repository": "github:chenxuyaun/yunshuo",
+  "type": "module",
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "dev": "concurrently -n api,web,worker -c blue,green,yellow \"pnpm --filter @yunshuo/api dev\" \"pnpm --filter @yunshuo/web dev\" \"pnpm --filter @yunshuo/worker dev\"",
+    "dev:api": "pnpm --filter @yunshuo/api dev",
+    "dev:web": "pnpm --filter @yunshuo/web dev",
+    "dev:worker": "pnpm --filter @yunshuo/worker dev",
+    "db:up": "docker compose up -d db",
+    "db:down": "docker compose down",
+    "db:migrate": "pnpm --filter @yunshuo/db migrate",
+    "db:seed": "pnpm --filter @yunshuo/db seed",
+    "db:reset": "docker compose down -v && docker compose up -d db && pnpm db:migrate && pnpm db:seed",
+    "test": "pnpm -r --workspace-concurrency=1 --if-present test",
+    "typecheck": "pnpm -r --if-present typecheck"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "^5.9.3"
+  }
+}

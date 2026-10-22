@@ -1,0 +1,15 @@
+node_modules
+**/node_modules
+dist
+**/dist
+.git
+.gitignore
+backups
+coverage
+*.log
+.env
+.env.*
+!.env.example
+!.env.studio.example
+docs
+README.md

@@ -1,0 +1,491 @@
+{
+  "generatedAt": "2026-10-21T06:03:55.625Z",
+  "base": "http://127.0.0.1:3100",
+  "workspace": "演示工作区",
+  "dataset": {
+    "description": "云说 demo 正典检索评估查询集。查询自拟，期望章节只用于回归对比，不代表真实读者查询分布。负例含 2 条域外对照与 6 条近域/混合对照，用于暴露相似度下限的边界，不参与阈值选择。",
+    "k": 8,
+    "positiveQueries": 11,
+    "negativeQueries": 8
+  },
+  "modes": {
+    "lexical": {
+      "actualHybrid": 0,
+      "actualLexical": 19,
+      "metrics": {
+        "hitAt1": 1,
+        "hitAt3": 1,
+        "hitAtK": 1,
+        "mrr": 1
+      },
+      "negativeTopHits": 1,
+      "negativeQueries": 8,
+      "coverage": {
+        "totalCanonChapters": 4,
+        "ready": 4,
+        "indexing": 0,
+        "pending": 0,
+        "failed": 0,
+        "notConfigured": 0,
+        "stale": 0,
+        "chunks": 9,
+        "vectorChunks": 9,
+        "vectorModel": "bge-m3:latest"
+      },
+      "queries": [
+        {
+          "query": "更鼓 木栅",
+          "expectChapter": 1,
+          "note": "第1章独有物件",
+          "rank": 1,
+          "mode": "lexical",
+          "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+          "topChapter": 1,
+          "topTitle": "旧城雨夜",
+          "topExcerpt": "…停。林默把最后一张封印符按进门框，指尖的血线已经凝住。他听见巷口传来追兵的马蹄声，知道封印必须在下一声更鼓之前完成。 他把铜钉一枚枚钉进门槛，嘴里默数。门后是整条街的灯火，也是他不能退让的理由。追兵撞开第一道木栅时，封印只差最后一角。林默没有回头，他咬破指尖，把血按在符心。 雨声忽然静了一瞬。门楣上的旧漆裂开，一道暗金…"
+        },
+        {
+          "query": "血线 指尖",
+          "expectChapter": 1,
+          "note": "第1章动作细节",
+          "rank": 1,
+          "mode": "lexical",
+          "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+          "topChapter": 1,
+          "topTitle": "旧城雨夜",
+          "topExcerpt": "旧城的雨没有停。林默把最后一张封印符按进门框，指尖的血线已经凝住。他听见巷口传来追兵的马蹄声，知道封印必须在下一声更鼓之前完成。 他把铜钉一枚枚钉进门槛，嘴里默数。门后是整条街的灯火，也是他不能退让的理由。追兵撞开第一道木栅时，封印只差最后一角。林默没有回头，他咬破指尖，把血按在符心。 雨声忽然静了一瞬。门楣上的旧漆裂…"
+        },
+        {
+          "query": "灯火 整条街",
+          "expectChapter": 1,
+          "note": "第1章场景",
+          "rank": 1,
+          "mode": "lexical",
+          "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+          "topChapter": 1,
+          "topTitle": "旧城雨夜",
+          "topExcerpt": "…听见巷口传来追兵的马蹄声，知道封印必须在下一声更鼓之前完成。 他把铜钉一枚枚钉进门槛，嘴里默数。门后是整条街的灯火，也是他不能退让的理由。追兵撞开第一道木栅时，封印只差最后一角。林默没有回头，他咬破指尖，把血按在符心。 雨声忽然静了一瞬。门楣上的旧漆裂开，一道暗金色的纹路顺着门框爬满整条街。追兵停在巷口，像被一堵看不见…"
+        },
+        {
+          "query": "木刺 血珠",
+          "expectChapter": 2,
+          "note": "第2章动作细节",
+          "rank": 1,
+          "mode": "lexical",
+          "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+          "topChapter": 2,
+          "topTitle": "封印之前",
+          "topExcerpt": "旧城的雨没有停。林默蹲在门洞里，把最后一张封印符压在门框上，木刺扎进指腹，血珠沿着符纸的边缘渗开。他必须在追兵赶到之前补齐缺掉的那一枚铜钉，否则整条街都会变成祭坛。 石阶下传来脚步声，不急不缓，每一步都踩在水里。林默没有回头。他把铜钉咬在齿间，腾出手去摸怀里的第二道符。封口只剩半寸，门后的东西已经开始撞门，一下，又一下…"
+        },
+        {
+          "query": "祭坛 铜钉",
+          "expectChapter": 2,
+          "note": "第2章设定物件",
+          "rank": 1,
+          "mode": "lexical",
+          "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+          "topChapter": 2,
+          "topTitle": "封印之前",
+          "topExcerpt": "…把最后一张封印符压在门框上，木刺扎进指腹，血珠沿着符纸的边缘渗开。他必须在追兵赶到之前补齐缺掉的那一枚铜钉，否则整条街都会变成祭坛。 石阶下传来脚步声，不急不缓，每一步都踩在水里。林默没有回头。他把铜钉咬在齿间，腾出手去摸怀里的第二道符。封口只剩半寸，门后的东西已经开始撞门，一下，又一下，木屑从门缝里落下来。 “还差一…"
+        },
+        {
+          "query": "符纸 木刺 血珠",
+          "expectChapter": 2,
+          "note": "第2章多词组合",
+          "rank": 1,
+          "mode": "lexical",
+          "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+          "topChapter": 2,
+          "topTitle": "封印之前",
+          "topExcerpt": "旧城的雨没有停。林默蹲在门洞里，把最后一张封印符压在门框上，木刺扎进指腹，血珠沿着符纸的边缘渗开。他必须在追兵赶到之前补齐缺掉的那一枚铜钉，否则整条街都会变成祭坛。 石阶下传来脚步声，不急不缓，每一步都踩在水里。林默没有回头。他把铜钉咬在齿间，腾出手去摸怀里的第二道符。封口只剩半寸，门后的东西已经开始撞门，一下，又一下…"
+        },
+        {
+          "query": "铜锈 裂纹",
+          "expectChapter": 3,
+          "note": "第3章关键线索",
+          "rank": 1,
+          "mode": "lexical",
+          "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+          "topChapter": 3,
+          "topTitle": "封印之后",
+          "topExcerpt": "雨停在子时。林默把铜钉摊在掌心，钉身上有一道新鲜的裂纹，像有人从里面敲过。 裂纹很细，像血管一样藏在铜锈底下，指腹碾过去才有细微的凸起。林默忽然明白那句话的意思了——七年前的火没有烧死任何人，巡夜服只是件衣裳，衣裳可以换，可以再穿一遍。 巷口的人没有再走近，只是把那枚铜钉抛了抛。雨停之后的石板比雨里更滑，林默能听见自己…"
+        },
+        {
+          "query": "石板 雨停",
+          "expectChapter": 3,
+          "note": "第3章场景",
+          "rank": 1,
+          "mode": "lexical",
+          "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+          "topChapter": 3,
+          "topTitle": "封印之后",
+          "topExcerpt": "雨停在子时。林默把铜钉摊在掌心，钉身上有一道新鲜的裂纹，像有人从里面敲过。 裂纹很细，像血管一样藏在铜锈底下，指腹碾过去才有细微的凸起。林默忽然明白那句话的意思了——七年前的火没有烧死任何人，巡夜服只是件衣裳，衣裳可以换，可以再穿一遍。 巷口的人没有再走近，只是把那枚铜钉抛了抛。雨停之后的石板比雨里更滑，林默能听见自己…"
+        },
+        {
+          "query": "门闩 深井",
+          "expectChapter": 4,
+          "note": "第4章独有物件",
+          "rank": 1,
+          "mode": "lexical",
+          "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+          "topChapter": 4,
+          "topTitle": "追兵入巷",
+          "topExcerpt": "第一根门闩崩开的时候，林默以为门会直接冲开来。 没有。门板只是往里凹了一指宽，又被什么力量勒回去，像一只手按住了另一只手。缝隙里透出的气息不是热的，是那种深井底下的凉，贴着地皮漫出来，舔过他的脚踝。 他的左手还按在门框上。血已经不太流了，符纸吸饱之后变得硬而脆，像一片结了痂的皮贴在木头上。封印符亮了两次就再没亮过，他不…"
+        },
+        {
+          "query": "脚踝 缝隙",
+          "expectChapter": 4,
+          "note": "第4章动作细节",
+          "rank": 1,
+          "mode": "lexical",
+          "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+          "topChapter": 4,
+          "topTitle": "追兵入巷",
+          "topExcerpt": "…，林默以为门会直接冲开来。 没有。门板只是往里凹了一指宽，又被什么力量勒回去，像一只手按住了另一只手。缝隙里透出的气息不是热的，是那种深井底下的凉，贴着地皮漫出来，舔过他的脚踝。 他的左手还按在门框上。血已经不太流了，符纸吸饱之后变得硬而脆，像一片结了痂的皮贴在木头上。封印符亮了两次就再没亮过，他不确定是力道不够，还是…"
+        },
+        {
+          "query": "门板 门闩 缝隙",
+          "expectChapter": 4,
+          "note": "第4章多词组合",
+          "rank": 1,
+          "mode": "lexical",
+          "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+          "topChapter": 4,
+          "topTitle": "追兵入巷",
+          "topExcerpt": "他，还要不要撑。 门后的呼吸声变了。原来是一个，现在像两个。一个贴着门板，一个退到更深处。 退进去的那个……是谁？ \"你们听到了吗？\"林默的声音压得很低。 台阶下三个人都没有动。雨水从他们的袖口往下滴，在石阶上汇成细流。中间那个慢慢抬起头来，檐帽下面露出一双眼睛，看着林默，像在看一样已经注定要碎的东西。 \"门后面不止一…"
+        },
+        {
+          "query": "星际飞船 量子引擎",
+          "expectChapter": null,
+          "note": "域外对照：无正典词汇",
+          "rank": null,
+          "mode": "lexical",
+          "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+          "topChapter": null,
+          "topTitle": null,
+          "topExcerpt": null
+        },
+        {
+          "query": "咖啡机 拉花",
+          "expectChapter": null,
+          "note": "域外对照：无正典词汇",
+          "rank": null,
+          "mode": "lexical",
+          "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+          "topChapter": null,
+          "topTitle": null,
+          "topExcerpt": null
+        },
+        {
+          "query": "咖啡馆 拿铁",
+          "expectChapter": null,
+          "note": "近域对照：现代物件，无正典内容",
+          "rank": null,
+          "mode": "lexical",
+          "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+          "topChapter": null,
+          "topTitle": null,
+          "topExcerpt": null
+        },
+        {
+          "query": "雨夜 咖啡馆",
+          "expectChapter": null,
+          "note": "近域对照：同题材氛围词，无对应情节",
+          "rank": null,
+          "mode": "lexical",
+          "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+          "topChapter": null,
+          "topTitle": null,
+          "topExcerpt": null
+        },
+        {
+          "query": "手机 充电",
+          "expectChapter": null,
+          "note": "近域对照：现代物件，无正典内容",
+          "rank": null,
+          "mode": "lexical",
+          "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+          "topChapter": null,
+          "topTitle": null,
+          "topExcerpt": null
+        },
+        {
+          "query": "魔法学院 期末考试",
+          "expectChapter": null,
+          "note": "近域对照：幻想题材，无正典内容",
+          "rank": null,
+          "mode": "lexical",
+          "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+          "topChapter": null,
+          "topTitle": null,
+          "topExcerpt": null
+        },
+        {
+          "query": "剑 魔法",
+          "expectChapter": null,
+          "note": "近域对照：幻想题材，无正典内容",
+          "rank": null,
+          "mode": "lexical",
+          "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+          "topChapter": null,
+          "topTitle": null,
+          "topExcerpt": null
+        },
+        {
+          "query": "林默 咖啡",
+          "expectChapter": null,
+          "note": "混合对照：含正典人物，但无咖啡情节",
+          "rank": null,
+          "mode": "lexical",
+          "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+          "topChapter": 3,
+          "topTitle": "封印之后",
+          "topExcerpt": "雨停在子时。林默把铜钉摊在掌心，钉身上有一道新鲜的裂纹，像有人从里面敲过。 裂纹很细，像血管一样藏在铜锈底下，指腹碾过去才有细微的凸起。林默忽然明白那句话的意思了——七年前的火没有烧死任何人，巡夜服只是件衣裳，衣裳可以换，可以再穿一遍。 巷口的人没有再走近，只是把那枚铜钉抛了抛。雨停之后的石板比雨里更滑，林默能听见自己…"
+        }
+      ]
+    },
+    "auto": {
+      "actualHybrid": 17,
+      "actualLexical": 2,
+      "metrics": {
+        "hitAt1": 0.8181818181818182,
+        "hitAt3": 1,
+        "hitAtK": 1,
+        "mrr": 0.9090909090909091
+      },
+      "negativeTopHits": 6,
+      "negativeQueries": 8,
+      "coverage": {
+        "totalCanonChapters": 4,
+        "ready": 4,
+        "indexing": 0,
+        "pending": 0,
+        "failed": 0,
+        "notConfigured": 0,
+        "stale": 0,
+        "chunks": 9,
+        "vectorChunks": 9,
+        "vectorModel": "bge-m3:latest"
+      },
+      "queries": [
+        {
+          "query": "更鼓 木栅",
+          "expectChapter": 1,
+          "note": "第1章独有物件",
+          "rank": 1,
+          "mode": "hybrid",
+          "semanticReason": null,
+          "topChapter": 1,
+          "topTitle": "旧城雨夜",
+          "topExcerpt": "…停。林默把最后一张封印符按进门框，指尖的血线已经凝住。他听见巷口传来追兵的马蹄声，知道封印必须在下一声更鼓之前完成。 他把铜钉一枚枚钉进门槛，嘴里默数。门后是整条街的灯火，也是他不能退让的理由。追兵撞开第一道木栅时，封印只差最后一角。林默没有回头，他咬破指尖，把血按在符心。 雨声忽然静了一瞬。门楣上的旧漆裂开，一道暗金…"
+        },
+        {
+          "query": "血线 指尖",
+          "expectChapter": 1,
+          "note": "第1章动作细节",
+          "rank": 2,
+          "mode": "hybrid",
+          "semanticReason": null,
+          "topChapter": 4,
+          "topTitle": "追兵入巷",
+          "topExcerpt": "…点痒。 痒意顺着手腕往上走。 林默甩了一下手，木条掉在地上，他的手心里多了一道浅浅的灰痕，从掌根一直到指尖，像一条被描出来的纹路。 他忽然想起巷口那个人抛钉的手势——铜钉在半空翻转，裂纹朝上，停了一瞬，落回掌心。那一停很短，短得像没有发生过，但林默想起来了：那个人抛钉的时候，手背上也有这样一道灰痕。 从掌根到指尖。 一…"
+        },
+        {
+          "query": "灯火 整条街",
+          "expectChapter": 1,
+          "note": "第1章场景",
+          "rank": 1,
+          "mode": "hybrid",
+          "semanticReason": null,
+          "topChapter": 1,
+          "topTitle": "旧城雨夜",
+          "topExcerpt": "…听见巷口传来追兵的马蹄声，知道封印必须在下一声更鼓之前完成。 他把铜钉一枚枚钉进门槛，嘴里默数。门后是整条街的灯火，也是他不能退让的理由。追兵撞开第一道木栅时，封印只差最后一角。林默没有回头，他咬破指尖，把血按在符心。 雨声忽然静了一瞬。门楣上的旧漆裂开，一道暗金色的纹路顺着门框爬满整条街。追兵停在巷口，像被一堵看不见…"
+        },
+        {
+          "query": "木刺 血珠",
+          "expectChapter": 2,
+          "note": "第2章动作细节",
+          "rank": 1,
+          "mode": "hybrid",
+          "semanticReason": null,
+          "topChapter": 2,
+          "topTitle": "封印之前",
+          "topExcerpt": "旧城的雨没有停。林默蹲在门洞里，把最后一张封印符压在门框上，木刺扎进指腹，血珠沿着符纸的边缘渗开。他必须在追兵赶到之前补齐缺掉的那一枚铜钉，否则整条街都会变成祭坛。 石阶下传来脚步声，不急不缓，每一步都踩在水里。林默没有回头。他把铜钉咬在齿间，腾出手去摸怀里的第二道符。封口只剩半寸，门后的东西已经开始撞门，一下，又一下…"
+        },
+        {
+          "query": "祭坛 铜钉",
+          "expectChapter": 2,
+          "note": "第2章设定物件",
+          "rank": 2,
+          "mode": "hybrid",
+          "semanticReason": null,
+          "topChapter": 4,
+          "topTitle": "追兵入巷",
+          "topExcerpt": "缓缓张开。 五枚铜钉在他掌心，第六枚在那个走来的人手里，第七枚的位置空着，在门框左下角，离地面最浅的那一处。 那个人走到月光能照到的地方，林默看清了他的脸。 铜钉从他手里掉下来，落在石板上，发出清脆的一声响，在地上旋转，停住，裂纹正对着林默。 \"好久不见，\"那人说，声音和林默的记忆隔了七年的水声，哑了，却还是那个调子，…"
+        },
+        {
+          "query": "符纸 木刺 血珠",
+          "expectChapter": 2,
+          "note": "第2章多词组合",
+          "rank": 1,
+          "mode": "hybrid",
+          "semanticReason": null,
+          "topChapter": 2,
+          "topTitle": "封印之前",
+          "topExcerpt": "旧城的雨没有停。林默蹲在门洞里，把最后一张封印符压在门框上，木刺扎进指腹，血珠沿着符纸的边缘渗开。他必须在追兵赶到之前补齐缺掉的那一枚铜钉，否则整条街都会变成祭坛。 石阶下传来脚步声，不急不缓，每一步都踩在水里。林默没有回头。他把铜钉咬在齿间，腾出手去摸怀里的第二道符。封口只剩半寸，门后的东西已经开始撞门，一下，又一下…"
+        },
+        {
+          "query": "铜锈 裂纹",
+          "expectChapter": 3,
+          "note": "第3章关键线索",
+          "rank": 1,
+          "mode": "hybrid",
+          "semanticReason": null,
+          "topChapter": 3,
+          "topTitle": "封印之后",
+          "topExcerpt": "雨停在子时。林默把铜钉摊在掌心，钉身上有一道新鲜的裂纹，像有人从里面敲过。 裂纹很细，像血管一样藏在铜锈底下，指腹碾过去才有细微的凸起。林默忽然明白那句话的意思了——七年前的火没有烧死任何人，巡夜服只是件衣裳，衣裳可以换，可以再穿一遍。 巷口的人没有再走近，只是把那枚铜钉抛了抛。雨停之后的石板比雨里更滑，林默能听见自己…"
+        },
+        {
+          "query": "石板 雨停",
+          "expectChapter": 3,
+          "note": "第3章场景",
+          "rank": 1,
+          "mode": "hybrid",
+          "semanticReason": null,
+          "topChapter": 3,
+          "topTitle": "封印之后",
+          "topExcerpt": "雨停在子时。林默把铜钉摊在掌心，钉身上有一道新鲜的裂纹，像有人从里面敲过。 裂纹很细，像血管一样藏在铜锈底下，指腹碾过去才有细微的凸起。林默忽然明白那句话的意思了——七年前的火没有烧死任何人，巡夜服只是件衣裳，衣裳可以换，可以再穿一遍。 巷口的人没有再走近，只是把那枚铜钉抛了抛。雨停之后的石板比雨里更滑，林默能听见自己…"
+        },
+        {
+          "query": "门闩 深井",
+          "expectChapter": 4,
+          "note": "第4章独有物件",
+          "rank": 1,
+          "mode": "hybrid",
+          "semanticReason": null,
+          "topChapter": 4,
+          "topTitle": "追兵入巷",
+          "topExcerpt": "…不出来的。只有你把门打开，封印散干净了，它才肯放手。林默，你师父欠的那条命，今夜得有个说法。\" 第三根门闩断了。 这一次没有声音，林默是看见的——门板中缝鼓起来，像有什么从里面顶了一下又缩回去。两半门板合拢的缝隙变宽了，能塞进一根手指。缝隙里透出的光不是白色也不是红色，是一种说不上来的灰，像烧了很多年的灰烬自己亮了起来…"
+        },
+        {
+          "query": "脚踝 缝隙",
+          "expectChapter": 4,
+          "note": "第4章动作细节",
+          "rank": 1,
+          "mode": "hybrid",
+          "semanticReason": null,
+          "topChapter": 4,
+          "topTitle": "追兵入巷",
+          "topExcerpt": "…，林默以为门会直接冲开来。 没有。门板只是往里凹了一指宽，又被什么力量勒回去，像一只手按住了另一只手。缝隙里透出的气息不是热的，是那种深井底下的凉，贴着地皮漫出来，舔过他的脚踝。 他的左手还按在门框上。血已经不太流了，符纸吸饱之后变得硬而脆，像一片结了痂的皮贴在木头上。封印符亮了两次就再没亮过，他不确定是力道不够，还是…"
+        },
+        {
+          "query": "门板 门闩 缝隙",
+          "expectChapter": 4,
+          "note": "第4章多词组合",
+          "rank": 1,
+          "mode": "hybrid",
+          "semanticReason": null,
+          "topChapter": 4,
+          "topTitle": "追兵入巷",
+          "topExcerpt": "他，还要不要撑。 门后的呼吸声变了。原来是一个，现在像两个。一个贴着门板，一个退到更深处。 退进去的那个……是谁？ \"你们听到了吗？\"林默的声音压得很低。 台阶下三个人都没有动。雨水从他们的袖口往下滴，在石阶上汇成细流。中间那个慢慢抬起头来，檐帽下面露出一双眼睛，看着林默，像在看一样已经注定要碎的东西。 \"门后面不止一…"
+        },
+        {
+          "query": "星际飞船 量子引擎",
+          "expectChapter": null,
+          "note": "域外对照：无正典词汇",
+          "rank": null,
+          "mode": "lexical",
+          "semanticReason": "向量最高相似度 0.352 低于阈值 0.400，本次仅用词法检索",
+          "topChapter": null,
+          "topTitle": null,
+          "topExcerpt": null
+        },
+        {
+          "query": "咖啡机 拉花",
+          "expectChapter": null,
+          "note": "域外对照：无正典词汇",
+          "rank": null,
+          "mode": "lexical",
+          "semanticReason": "向量最高相似度 0.385 低于阈值 0.400，本次仅用词法检索",
+          "topChapter": null,
+          "topTitle": null,
+          "topExcerpt": null
+        },
+        {
+          "query": "咖啡馆 拿铁",
+          "expectChapter": null,
+          "note": "近域对照：现代物件，无正典内容",
+          "rank": null,
+          "mode": "hybrid",
+          "semanticReason": null,
+          "topChapter": 4,
+          "topTitle": "追兵入巷",
+          "topExcerpt": "铜锈一个味道。 \"你们在等门开。\"他说。 没人接话。 \"你们不是来抓我的，\"林默的手指从门框上移开，掌根的木刺还扎在肉里，他没去拔，\"你们是来等它出来的。巡夜服管不了这事，所以你们站在台阶下面，等我把门弄开，再上去收尾。\" 中间那个又叩了两下门板。这一次重了些，门板往里晃了晃，门后传来一声极低的闷响——像有什么东西翻了…"
+        },
+        {
+          "query": "雨夜 咖啡馆",
+          "expectChapter": null,
+          "note": "近域对照：同题材氛围词，无对应情节",
+          "rank": null,
+          "mode": "hybrid",
+          "semanticReason": null,
+          "topChapter": 1,
+          "topTitle": "旧城雨夜",
+          "topExcerpt": "旧城的雨没有停。林默把最后一张封印符按进门框，指尖的血线已经凝住。他听见巷口传来追兵的马蹄声，知道封印必须在下一声更鼓之前完成。 他把铜钉一枚枚钉进门槛，嘴里默数。门后是整条街的灯火，也是他不能退让的理由。追兵撞开第一道木栅时，封印只差最后一角。林默没有回头，他咬破指尖，把血按在符心。 雨声忽然静了一瞬。门楣上的旧漆裂…"
+        },
+        {
+          "query": "手机 充电",
+          "expectChapter": null,
+          "note": "近域对照：现代物件，无正典内容",
+          "rank": null,
+          "mode": "hybrid",
+          "semanticReason": null,
+          "topChapter": 4,
+          "topTitle": "追兵入巷",
+          "topExcerpt": "缓缓张开。 五枚铜钉在他掌心，第六枚在那个走来的人手里，第七枚的位置空着，在门框左下角，离地面最浅的那一处。 那个人走到月光能照到的地方，林默看清了他的脸。 铜钉从他手里掉下来，落在石板上，发出清脆的一声响，在地上旋转，停住，裂纹正对着林默。 \"好久不见，\"那人说，声音和林默的记忆隔了七年的水声，哑了，却还是那个调子，…"
+        },
+        {
+          "query": "魔法学院 期末考试",
+          "expectChapter": null,
+          "note": "近域对照：幻想题材，无正典内容",
+          "rank": null,
+          "mode": "hybrid",
+          "semanticReason": null,
+          "topChapter": 1,
+          "topTitle": "旧城雨夜",
+          "topExcerpt": "旧城的雨没有停。林默把最后一张封印符按进门框，指尖的血线已经凝住。他听见巷口传来追兵的马蹄声，知道封印必须在下一声更鼓之前完成。 他把铜钉一枚枚钉进门槛，嘴里默数。门后是整条街的灯火，也是他不能退让的理由。追兵撞开第一道木栅时，封印只差最后一角。林默没有回头，他咬破指尖，把血按在符心。 雨声忽然静了一瞬。门楣上的旧漆裂…"
+        },
+        {
+          "query": "剑 魔法",
+          "expectChapter": null,
+          "note": "近域对照：幻想题材，无正典内容",
+          "rank": null,
+          "mode": "hybrid",
+          "semanticReason": null,
+          "topChapter": 1,
+          "topTitle": "旧城雨夜",
+          "topExcerpt": "旧城的雨没有停。林默把最后一张封印符按进门框，指尖的血线已经凝住。他听见巷口传来追兵的马蹄声，知道封印必须在下一声更鼓之前完成。 他把铜钉一枚枚钉进门槛，嘴里默数。门后是整条街的灯火，也是他不能退让的理由。追兵撞开第一道木栅时，封印只差最后一角。林默没有回头，他咬破指尖，把血按在符心。 雨声忽然静了一瞬。门楣上的旧漆裂…"
+        },
+        {
+          "query": "林默 咖啡",
+          "expectChapter": null,
+          "note": "混合对照：含正典人物，但无咖啡情节",
+          "rank": null,
+          "mode": "hybrid",
+          "semanticReason": null,
+          "topChapter": 4,
+          "topTitle": "追兵入巷",
+          "topExcerpt": "…条还带着门后的凉气，沉得不像木头。断口处的符纸灰沾在他指上，凉的，又有一点痒。 痒意顺着手腕往上走。 林默甩了一下手，木条掉在地上，他的手心里多了一道浅浅的灰痕，从掌根一直到指尖，像一条被描出来的纹路。 他忽然想起巷口那个人抛钉的手势——铜钉在半空翻转，裂纹朝上，停了一瞬，落回掌心。那一停很短，短得像没有发生过，但林默…"
+        }
+      ]
+    }
+  },
+  "vectorMinScore": 0.4,
+  "caveats": [
+    "查询集为 11 条关键词正例 + 8 条无答案对照（2 条域外 + 6 条近域/混合），正例查询词与原文高度重合，天然偏向词法通道；不能据此断言混合检索更好或更差。",
+    "向量通道按 SEARCH_VECTOR_MIN_SCORE=0.4 过滤低分邻居，并在最高分低于阈值时整通道降级；该阈值来自本机 bge-m3 与最初的 13 条查询，样本不足以证明它是最优值，换模型或换语料需重测。",
+    "负例包含 2 条域外查询与 6 条近域/混合查询；0.4 只让两条域外对照降级，近域/混合负例仍会返回章节。阈值在加入这些硬负例之前已经确定，本轮没有按硬负例结果调参；相似度下限不是“无答案分类器”。",
+    "demo 仅 4 章约 3664 字、9 个片段，样本不足以调参，也不能代表真实检索质量。",
+    "lexical 模式强制不调用嵌入服务，仅用于同数据集对照，不是线上默认行为。"
+  ]
+}

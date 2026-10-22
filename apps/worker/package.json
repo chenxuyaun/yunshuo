@@ -1,0 +1,25 @@
+{
+  "name": "@yunshuo/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@yunshuo/db": "workspace:*",
+    "@yunshuo/domain": "workspace:*",
+    "@yunshuo/model-gateway": "workspace:*",
+    "@yunshuo/retrieval": "workspace:*",
+    "dotenv": "^17.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.0"
+  }
+}
