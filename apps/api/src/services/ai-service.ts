@@ -1384,6 +1384,8 @@ export async function executeProposal(
       requestedMaxTokens: mandateDecision.maxTokens,
       chapterId: run.chapterId,
       proposalId: run.proposalId,
+      suggestionId: null,
+      purpose: 'chapter_proposal',
       jobId: run.jobId,
       actorId: run.auth.user.id,
       attemptNo: totalAttempts,

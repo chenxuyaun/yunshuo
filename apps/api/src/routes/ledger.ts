@@ -3,12 +3,20 @@ import { z } from 'zod';
 import {
   archiveLedgerEntrySchema,
   createLedgerEntrySchema,
+  createLedgerSuggestionSchema,
+  decideLedgerSuggestionSchema,
   listLedgerEntriesQuerySchema,
   publishLedgerEntrySchema,
   rollbackLedgerEntrySchema,
   updateLedgerDraftSchema,
 } from '@yunshuo/contracts';
 import { requireAuth } from '../auth.js';
+import {
+  acceptLedgerSuggestion,
+  createLedgerSuggestion,
+  listLedgerSuggestions,
+  rejectLedgerSuggestion,
+} from '../services/ledger-suggestion-service.js';
 import {
   archiveLedgerEntry,
   createLedgerEntry,
@@ -103,5 +111,32 @@ export async function ledgerRoutes(app: FastifyInstance): Promise<void> {
     const { id } = idParams.parse(request.params);
     const input = rollbackLedgerEntrySchema.parse(request.body);
     return rollbackLedgerEntry(auth, id, input);
+  });
+
+  app.get('/api/ledger/entries/:id/suggestions', async (request) => {
+    const auth = await requireAuth(request);
+    const { id } = idParams.parse(request.params);
+    return listLedgerSuggestions(auth, id);
+  });
+
+  app.post('/api/ledger/entries/:id/suggestions', async (request) => {
+    const auth = await requireAuth(request);
+    const { id } = idParams.parse(request.params);
+    const input = createLedgerSuggestionSchema.parse(request.body);
+    return createLedgerSuggestion(auth, id, input);
+  });
+
+  app.post('/api/ledger/suggestions/:id/accept', async (request) => {
+    const auth = await requireAuth(request);
+    const { id } = idParams.parse(request.params);
+    const input = decideLedgerSuggestionSchema.parse(request.body);
+    return acceptLedgerSuggestion(auth, id, input);
+  });
+
+  app.post('/api/ledger/suggestions/:id/reject', async (request) => {
+    const auth = await requireAuth(request);
+    const { id } = idParams.parse(request.params);
+    const input = decideLedgerSuggestionSchema.parse(request.body);
+    return rejectLedgerSuggestion(auth, id, input);
   });
 }

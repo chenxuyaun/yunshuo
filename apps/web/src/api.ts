@@ -43,6 +43,8 @@ import type {
   LedgerCharacterTimeline,
   LedgerForeshadowingReminders,
   LedgerForeshadowingReport,
+  LedgerSuggestionListResponse,
+  LedgerSuggestionView,
   MemberView,
   MeResponse,
   ModelDiscoveryResponse,
@@ -69,6 +71,8 @@ import type {
   WorkspaceMembershipsResponse,
   ArchiveLedgerEntryInput,
   CreateLedgerEntryInput,
+  CreateLedgerSuggestionInput,
+  DecideLedgerSuggestionInput,
 } from '@yunshuo/contracts';
 import type { HumanRole, Role } from '@yunshuo/domain';
 import type { PriceCurrency } from '@yunshuo/contracts';
@@ -882,6 +886,42 @@ export function rollbackLedgerEntry(
   input: RollbackLedgerEntryInput,
 ): Promise<LedgerEntryDetail> {
   return request<LedgerEntryDetail>(`/api/ledger/entries/${entryId}/rollback`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function listLedgerSuggestions(
+  entryId: string,
+): Promise<LedgerSuggestionListResponse> {
+  return request<LedgerSuggestionListResponse>(`/api/ledger/entries/${entryId}/suggestions`);
+}
+
+export function createLedgerSuggestion(
+  entryId: string,
+  input: CreateLedgerSuggestionInput,
+): Promise<LedgerSuggestionView> {
+  return request<LedgerSuggestionView>(`/api/ledger/entries/${entryId}/suggestions`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function acceptLedgerSuggestion(
+  suggestionId: string,
+  input: DecideLedgerSuggestionInput,
+): Promise<{ suggestion: LedgerSuggestionView; entry: LedgerEntryDetail }> {
+  return request(`/api/ledger/suggestions/${suggestionId}/accept`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function rejectLedgerSuggestion(
+  suggestionId: string,
+  input: DecideLedgerSuggestionInput,
+): Promise<LedgerSuggestionView> {
+  return request<LedgerSuggestionView>(`/api/ledger/suggestions/${suggestionId}/reject`, {
     method: 'POST',
     body: JSON.stringify(input),
   });
