@@ -8,6 +8,8 @@ import type {
   LedgerEntryStatus,
   LedgerEntrySummary,
   LedgerEntryVersionView,
+  LedgerForeshadowingPayload,
+  LedgerForeshadowingSummary,
   MeResponse,
 } from '@yunshuo/contracts';
 import {
@@ -15,6 +17,7 @@ import {
   archiveLedgerEntry,
   createLedgerEntry,
   getCharacterTimeline,
+  getForeshadowingReport,
   getLedgerEntry,
   listLedgerEntries,
   listLedgerVersions,
@@ -24,6 +27,8 @@ import {
 } from '../api.js';
 import {
   CHARACTER_LIFE_LABELS,
+  FORESHADOWING_IMPORTANCE_LABELS,
+  FORESHADOWING_STATE_LABELS,
   LEDGER_KIND_LABELS,
   LEDGER_SCOPE_LABELS,
   LEDGER_STATUS_LABELS,
@@ -31,12 +36,18 @@ import {
   VERIFICATION_LABELS,
   diffLedgerSnapshots,
   isCharacterPayload,
+  isForeshadowingPayload,
   isSettingPayload,
+  payoffWindowLabel,
   type LedgerFieldDiff,
 } from '../ledger.js';
 import { formatDateTime } from '../format.js';
 import { Badge, type BadgeTone } from './Badge.js';
 import { CharacterEntryForm, type CharacterDraftInput } from './CharacterEntryForm.js';
+import {
+  ForeshadowingEntryForm,
+  type ForeshadowingDraftInput,
+} from './ForeshadowingEntryForm.js';
 import { LedgerEntryForm, type LedgerDraftInput } from './LedgerEntryForm.js';
 
 interface Props {
@@ -46,16 +57,33 @@ interface Props {
 }
 
 type StatusFilter = 'all' | LedgerEntryStatus;
-type LedgerKindTab = 'setting' | 'character';
+type LedgerKindTab = 'setting' | 'character' | 'foreshadowing';
+type ForeshadowingFilter = 'all' | 'unresolved' | 'overdue' | 'paid_off' | 'abandoned';
 
 type LedgerFormInput =
   | { kind: 'setting'; input: LedgerDraftInput }
-  | { kind: 'character'; input: CharacterDraftInput };
+  | { kind: 'character'; input: CharacterDraftInput }
+  | { kind: 'foreshadowing'; input: ForeshadowingDraftInput };
 
 const KIND_TABS: { value: LedgerKindTab; label: string }[] = [
   { value: 'setting', label: '设定' },
   { value: 'character', label: '角色' },
+  { value: 'foreshadowing', label: '伏笔' },
 ];
+
+const FORESHADOWING_FILTERS: { value: ForeshadowingFilter; label: string }[] = [
+  { value: 'all', label: '全部回收状态' },
+  { value: 'unresolved', label: '未回收' },
+  { value: 'overdue', label: '已逾期' },
+  { value: 'paid_off', label: '已回收' },
+  { value: 'abandoned', label: '已放弃' },
+];
+
+const KIND_NOUNS: Record<LedgerKindTab, string> = {
+  setting: '设定',
+  character: '角色',
+  foreshadowing: '伏笔',
+};
 
 const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
   { value: 'all', label: '全部未归档' },
@@ -92,6 +120,8 @@ export function LedgerDialog({ me, chapters, onClose }: Props) {
 
   const [kindFilter, setKindFilter] = useState<LedgerKindTab>('setting');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [foreshadowingFilter, setForeshadowingFilter] =
+    useState<ForeshadowingFilter>('all');
   const [workFilter, setWorkFilter] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -158,6 +188,28 @@ export function LedgerDialog({ me, chapters, onClose }: Props) {
       }),
   });
 
+  const foreshadowingReportQuery = useQuery({
+    queryKey: ['foreshadowingReport', workFilter],
+    queryFn: () => getForeshadowingReport(workFilter || undefined),
+    enabled: kindFilter === 'foreshadowing',
+  });
+
+  const entries = entriesQuery.data?.entries ?? [];
+  const visibleEntries =
+    kindFilter === 'foreshadowing' && foreshadowingFilter !== 'all'
+      ? entries.filter((item) => {
+          const meta = item.foreshadowing;
+          if (!meta) return false;
+          if (foreshadowingFilter === 'unresolved') {
+            return meta.state === 'planted' || meta.state === 'reinforced';
+          }
+          if (foreshadowingFilter === 'overdue') return meta.overdue;
+          return meta.state === foreshadowingFilter;
+        })
+      : entries;
+  const foreshadowingFilterActive =
+    kindFilter === 'foreshadowing' && foreshadowingFilter !== 'all';
+
   const detailQuery = useQuery({
     queryKey: ['ledgerEntry', selectedId],
     queryFn: () => getLedgerEntry(selectedId!),
@@ -172,8 +224,8 @@ export function LedgerDialog({ me, chapters, onClose }: Props) {
 
   useEffect(() => {
     if (mode !== 'view' || selectedId !== null) return;
-    setSelectedId(entriesQuery.data?.entries[0]?.id ?? null);
-  }, [entriesQuery.data, mode, selectedId]);
+    setSelectedId(visibleEntries[0]?.id ?? null);
+  }, [visibleEntries, mode, selectedId]);
 
   const entry = detailQuery.data ?? null;
   const versions = versionsQuery.data?.versions ?? [];
@@ -195,6 +247,8 @@ export function LedgerDialog({ me, chapters, onClose }: Props) {
       queryClient.invalidateQueries({ queryKey: ['ledgerEntries'] }),
       queryClient.invalidateQueries({ queryKey: ['ledgerCharacterTimeline'] }),
       queryClient.invalidateQueries({ queryKey: ['characterContext'] }),
+      queryClient.invalidateQueries({ queryKey: ['foreshadowingReport'] }),
+      queryClient.invalidateQueries({ queryKey: ['foreshadowingReminders'] }),
       entryId
         ? queryClient.invalidateQueries({ queryKey: ['ledgerEntry', entryId] })
         : Promise.resolve(),
@@ -226,6 +280,7 @@ export function LedgerDialog({ me, chapters, onClose }: Props) {
     resetTransient();
     setSelectedId(null);
     setMode('view');
+    setForeshadowingFilter('all');
     setKindFilter(next);
   }
 
@@ -247,26 +302,39 @@ export function LedgerDialog({ me, chapters, onClose }: Props) {
   }
 
   const createMutation = useMutation({
-    mutationFn: (input: LedgerFormInput) =>
-      input.kind === 'setting'
-        ? createLedgerEntry({
-            kind: 'setting',
-            workId: input.input.workId,
-            name: input.input.name,
-            aliases: input.input.aliases,
-            summary: input.input.summary,
-            sourceChapterId: input.input.sourceChapterId,
-            payload: input.input.payload,
-          })
-        : createLedgerEntry({
-            kind: 'character',
-            workId: input.input.workId,
-            name: input.input.name,
-            aliases: input.input.aliases,
-            summary: input.input.summary,
-            sourceChapterId: input.input.sourceChapterId,
-            payload: input.input.payload,
-          }),
+    mutationFn: (input: LedgerFormInput) => {
+      if (input.kind === 'setting') {
+        return createLedgerEntry({
+          kind: 'setting',
+          workId: input.input.workId,
+          name: input.input.name,
+          aliases: input.input.aliases,
+          summary: input.input.summary,
+          sourceChapterId: input.input.sourceChapterId,
+          payload: input.input.payload,
+        });
+      }
+      if (input.kind === 'character') {
+        return createLedgerEntry({
+          kind: 'character',
+          workId: input.input.workId,
+          name: input.input.name,
+          aliases: input.input.aliases,
+          summary: input.input.summary,
+          sourceChapterId: input.input.sourceChapterId,
+          payload: input.input.payload,
+        });
+      }
+      return createLedgerEntry({
+        kind: 'foreshadowing',
+        workId: input.input.workId,
+        name: input.input.name,
+        aliases: input.input.aliases,
+        summary: input.input.summary,
+        sourceChapterId: input.input.sourceChapterId,
+        payload: input.input.payload,
+      });
+    },
     onSuccess: async (created) => {
       setNotice('草稿已创建。发布后才会成为生效版本。');
       setError(null);
@@ -358,7 +426,6 @@ export function LedgerDialog({ me, chapters, onClose }: Props) {
     },
   });
 
-  const entries = entriesQuery.data?.entries ?? [];
   const draftDiffRows =
     entry?.draftVersion !== null && entry?.draftVersion
       ? diffLedgerSnapshots(
@@ -386,7 +453,7 @@ export function LedgerDialog({ me, chapters, onClose }: Props) {
         <header className="modal-head">
           <div>
             <p className="eyebrow">{me.workspace.name} · 设定与连续性账本</p>
-            <h2 id="ledger-title">设定与角色</h2>
+            <h2 id="ledger-title">设定、角色与伏笔</h2>
           </div>
           <button type="button" className="modal-close" onClick={onClose}>
             关闭
@@ -412,12 +479,16 @@ export function LedgerDialog({ me, chapters, onClose }: Props) {
             <div className="ledger-sidebar-actions">
               {canWrite ? (
                 <button type="button" className="button button-primary button-small" onClick={startCreate}>
-                  {kindFilter === 'setting' ? '新建设定' : '新建角色'}
+                  新建{KIND_NOUNS[kindFilter]}
                 </button>
               ) : (
                 <Badge tone="neutral">只读</Badge>
               )}
-              <span className="muted">共 {entries.length} 条</span>
+              <span className="muted">
+                {foreshadowingFilterActive
+                  ? `${visibleEntries.length} / ${entries.length} 条`
+                  : `共 ${entries.length} 条`}
+              </span>
             </div>
 
             <div className="ledger-filters">
@@ -468,34 +539,100 @@ export function LedgerDialog({ me, chapters, onClose }: Props) {
                   </select>
                 </label>
               </div>
+              {kindFilter === 'foreshadowing' ? (
+                <>
+                  <div className="foreshadowing-report-strip">
+                    <div className="foreshadowing-report-head">
+                      <strong>伏笔报告</strong>
+                      <span className="muted">只读生效版本</span>
+                    </div>
+                    {foreshadowingReportQuery.isLoading ? (
+                      <p className="muted">正在统计……</p>
+                    ) : foreshadowingReportQuery.isError ? (
+                      <p className="index-error">
+                        报告读取失败：{errorText(foreshadowingReportQuery.error)}
+                      </p>
+                    ) : foreshadowingReportQuery.data ? (
+                      <>
+                        <div className="foreshadowing-report-counts">
+                          <span>
+                            未回收 <strong>{foreshadowingReportQuery.data.summary.unresolved}</strong>
+                          </span>
+                          <span>
+                            逾期 <strong>{foreshadowingReportQuery.data.summary.overdue}</strong>
+                          </span>
+                          <span>
+                            已回收 <strong>{foreshadowingReportQuery.data.summary.paidOff}</strong>
+                          </span>
+                          <span>
+                            已放弃 <strong>{foreshadowingReportQuery.data.summary.abandoned}</strong>
+                          </span>
+                        </div>
+                        <p className="foreshadowing-report-note">
+                          {foreshadowingReportQuery.data.note}
+                        </p>
+                      </>
+                    ) : null}
+                  </div>
+                  <label className="field">
+                    <span>回收状态</span>
+                    <select
+                      value={foreshadowingFilter}
+                      onChange={(event) =>
+                        handleFilterChange(() =>
+                          setForeshadowingFilter(
+                            event.target.value as ForeshadowingFilter,
+                          ),
+                        )
+                      }
+                    >
+                      {FORESHADOWING_FILTERS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </>
+              ) : null}
             </div>
 
             <div className="ledger-list">
               {entriesQuery.isLoading ? (
-                <p className="empty-state">
-                  正在读取{kindFilter === 'setting' ? '设定' : '角色'}条目……
-                </p>
+                <p className="empty-state">正在读取{KIND_NOUNS[kindFilter]}条目……</p>
               ) : entriesQuery.isError ? (
                 <div className="modal-error">读取失败：{errorText(entriesQuery.error)}</div>
-              ) : entries.length === 0 ? (
+              ) : visibleEntries.length === 0 ? (
                 <div className="ledger-empty">
                   <p className="empty-state">
-                    {searchQuery || workFilter || statusFilter !== 'all'
-                      ? `没有符合条件的${kindFilter === 'setting' ? '设定' : '角色'}条目。`
+                    {entries.length > 0 ||
+                    searchQuery ||
+                    workFilter ||
+                    statusFilter !== 'all' ||
+                    foreshadowingFilterActive
+                      ? `没有符合条件的${KIND_NOUNS[kindFilter]}条目。`
                       : kindFilter === 'setting'
                         ? '尚未建立设定条目。'
-                        : '尚未建立角色档案。'}
+                        : kindFilter === 'character'
+                          ? '尚未建立角色档案。'
+                          : '尚未登记伏笔。'}
                   </p>
                   <p className="muted">
-                    {searchQuery || workFilter || statusFilter !== 'all'
-                      ? `调整筛选条件，或新建一条${kindFilter === 'setting' ? '设定' : '角色'}。`
+                    {entries.length > 0 ||
+                    searchQuery ||
+                    workFilter ||
+                    statusFilter !== 'all' ||
+                    foreshadowingFilterActive
+                      ? `调整筛选条件，或新建一条${KIND_NOUNS[kindFilter]}。`
                       : kindFilter === 'setting'
                         ? '设定库为空时不会显示伪造的示例。先登记一条世界观事实，再发布为生效版本。'
-                        : '角色档案为空时不会显示伪造的示例。角色归属作品，状态绑定“截至第 N 章”。'}
+                        : kindFilter === 'character'
+                          ? '角色档案为空时不会显示伪造的示例。角色归属作品，状态绑定“截至第 N 章”。'
+                          : '伏笔台账为空时不会显示伪造的示例。先登记一条需要回收的线索，发布后才会进入提醒与逾期报告。'}
                   </p>
                 </div>
               ) : (
-                entries.map((item) => (
+                visibleEntries.map((item) => (
                   <LedgerListItem
                     key={item.id}
                     item={item}
@@ -513,7 +650,25 @@ export function LedgerDialog({ me, chapters, onClose }: Props) {
             {error ? <div className="modal-error">{error}</div> : null}
 
             {mode === 'create' ? (
-              kindFilter === 'character' ? (
+              kindFilter === 'foreshadowing' ? (
+                <ForeshadowingEntryForm
+                  key="create-foreshadowing"
+                  initial={null}
+                  initialWorkId={workFilter || null}
+                  works={works}
+                  chapters={chapters}
+                  submitting={createMutation.isPending}
+                  onSubmit={(input) => {
+                    setError(null);
+                    setNotice(null);
+                    createMutation.mutate({ kind: 'foreshadowing', input });
+                  }}
+                  onCancel={() => {
+                    setMode('view');
+                    setSelectedId(visibleEntries[0]?.id ?? null);
+                  }}
+                />
+              ) : kindFilter === 'character' ? (
                 <CharacterEntryForm
                   key="create-character"
                   initial={null}
@@ -528,7 +683,7 @@ export function LedgerDialog({ me, chapters, onClose }: Props) {
                   }}
                   onCancel={() => {
                     setMode('view');
-                    setSelectedId(entries[0]?.id ?? null);
+                    setSelectedId(visibleEntries[0]?.id ?? null);
                   }}
                 />
               ) : (
@@ -546,12 +701,27 @@ export function LedgerDialog({ me, chapters, onClose }: Props) {
                   }}
                   onCancel={() => {
                     setMode('view');
-                    setSelectedId(entries[0]?.id ?? null);
+                    setSelectedId(visibleEntries[0]?.id ?? null);
                   }}
                 />
               )
             ) : mode === 'edit' && entry ? (
-              entry.kind === 'character' ? (
+              entry.kind === 'foreshadowing' ? (
+                <ForeshadowingEntryForm
+                  key={`edit-foreshadowing-${entry.id}-${entry.draftVersion?.id ?? entry.currentVersion?.id ?? 'none'}`}
+                  initial={entry.draftVersion?.snapshot ?? entry.currentVersion?.snapshot ?? null}
+                  initialWorkId={entry.workId}
+                  works={works}
+                  chapters={chapters}
+                  submitting={saveMutation.isPending}
+                  onSubmit={(input) => {
+                    setError(null);
+                    setNotice(null);
+                    saveMutation.mutate({ kind: 'foreshadowing', input });
+                  }}
+                  onCancel={() => setMode('view')}
+                />
+              ) : entry.kind === 'character' ? (
                 <CharacterEntryForm
                   key={`edit-character-${entry.id}-${entry.draftVersion?.id ?? entry.currentVersion?.id ?? 'none'}`}
                   initial={entry.draftVersion?.snapshot ?? entry.currentVersion?.snapshot ?? null}
@@ -634,12 +804,9 @@ export function LedgerDialog({ me, chapters, onClose }: Props) {
               />
             ) : (
               <div className="ledger-empty ledger-empty-main">
-                <p className="empty-state">
-                  尚未选择{kindFilter === 'setting' ? '设定' : '角色'}条目。
-                </p>
+                <p className="empty-state">尚未选择{KIND_NOUNS[kindFilter]}条目。</p>
                 <p className="muted">
-                  从左侧选择条目查看版本与差异，或新建一条
-                  {kindFilter === 'setting' ? '设定' : '角色档案'}。
+                  从左侧选择条目查看版本与差异，或新建一条{KIND_NOUNS[kindFilter]}。
                 </p>
               </div>
             )}
@@ -648,7 +815,7 @@ export function LedgerDialog({ me, chapters, onClose }: Props) {
 
         <footer className="modal-foot">
           <span className="commit-foot-hint">
-            设定与角色按工作区隔离；已发布版本不可修改，所有写入进入审计。角色状态已接入写作台只读提示，尚未接入检索与门禁。
+            设定、角色与伏笔按工作区隔离；已发布版本不可修改，所有写入进入审计。角色状态与伏笔提醒已接入写作台只读提示，尚未接入检索与门禁。
           </span>
           <button type="button" className="button button-quiet" onClick={onClose}>
             关闭
@@ -687,6 +854,20 @@ function LedgerListItem({
         {item.currentVersionNo ? ` · 生效 v${item.currentVersionNo}` : ''}
         {item.draftVersionNo ? ` · 草稿 v${item.draftVersionNo}` : ''}
       </span>
+      {item.foreshadowing ? (
+        <span className="ledger-list-meta ledger-list-foreshadowing">
+          {FORESHADOWING_STATE_LABELS[item.foreshadowing.state]} · 重要度
+          {FORESHADOWING_IMPORTANCE_LABELS[item.foreshadowing.importance]} ·{' '}
+          {payoffWindowLabel(
+            item.foreshadowing.payoffChapterMin,
+            item.foreshadowing.payoffChapterMax,
+          )}
+          {item.foreshadowing.overdue
+            ? ` · 逾期 ${item.foreshadowing.overdueBy} 章`
+            : ''}
+          {item.foreshadowing.basis === 'draft' ? ' · 草稿' : ''}
+        </span>
+      ) : null}
     </button>
   );
 }
@@ -765,6 +946,8 @@ function LedgerEntryDetailView({
     snapshot && isSettingPayload(snapshot.payload) ? snapshot.payload : null;
   const characterPayload =
     snapshot && isCharacterPayload(snapshot.payload) ? snapshot.payload : null;
+  const foreshadowingPayload =
+    snapshot && isForeshadowingPayload(snapshot.payload) ? snapshot.payload : null;
   const editable = canWrite && entry.status !== 'archived';
   const hasDraft = Boolean(entry.draftVersion);
   const latestState = timeline?.states.at(-1) ?? null;
@@ -787,6 +970,36 @@ function LedgerEntryDetailView({
             ) : null}
             {characterPayload?.role ? (
               <Badge tone="ink">{characterPayload.role}</Badge>
+            ) : null}
+            {foreshadowingPayload ? (
+              <>
+                <Badge tone="ink">
+                  重要度：{FORESHADOWING_IMPORTANCE_LABELS[foreshadowingPayload.importance]}
+                </Badge>
+                <Badge
+                  tone={
+                    foreshadowingPayload.state === 'paid_off'
+                      ? 'green'
+                      : foreshadowingPayload.state === 'abandoned'
+                        ? 'muted'
+                        : foreshadowingPayload.state === 'reinforced'
+                          ? 'ink'
+                          : 'amber'
+                  }
+                >
+                  {FORESHADOWING_STATE_LABELS[foreshadowingPayload.state]}
+                </Badge>
+                {entry.foreshadowing?.overdue ? (
+                  <Badge tone="red">
+                    {entry.foreshadowing.basis === 'draft'
+                      ? '草稿'
+                      : hasDraft
+                        ? '生效版本'
+                        : ''}
+                    已逾期 {entry.foreshadowing.overdueBy} 章
+                  </Badge>
+                ) : null}
+              </>
             ) : null}
             {latestState ? (
               <Badge
@@ -917,6 +1130,14 @@ function LedgerEntryDetailView({
             payload={characterPayload}
             chapterLabel={chapterLabel}
             chapterNumber={chapterNumber}
+          />
+        ) : foreshadowingPayload ? (
+          <ForeshadowingPayloadView
+            payload={foreshadowingPayload}
+            meta={entry.foreshadowing ?? null}
+            chapterLabel={chapterLabel}
+            hasDraft={hasDraft}
+            currentVersionNo={entry.currentVersion?.versionNo ?? null}
           />
         ) : (
           <p className="empty-state">没有可展示的条目内容。</p>
@@ -1118,7 +1339,7 @@ function LedgerEntryDetailView({
 
       {!canWrite ? (
         <p className="muted ledger-readonly-hint">
-          审阅者与读者可查看设定与历史版本，但不能编辑、发布、归档或回滚。只有所有者、主笔与作者可以写入。
+          审阅者与读者可查看账本与历史版本，但不能编辑、发布、归档或回滚。只有所有者、主笔与作者可以写入。
         </p>
       ) : null}
     </div>
@@ -1212,6 +1433,92 @@ function CharacterPayloadView({
           </ol>
         )}
       </div>
+    </div>
+  );
+}
+
+function ForeshadowingPayloadView({
+  payload,
+  meta,
+  chapterLabel,
+  hasDraft,
+  currentVersionNo,
+}: {
+  payload: LedgerForeshadowingPayload;
+  meta: LedgerForeshadowingSummary | null;
+  chapterLabel: (chapterId: string | null) => string;
+  hasDraft: boolean;
+  currentVersionNo: number | null;
+}) {
+  const unresolved = payload.state === 'planted' || payload.state === 'reinforced';
+  const facts: [string, string][] = [
+    ['回收状态', FORESHADOWING_STATE_LABELS[payload.state]],
+    ['重要度', FORESHADOWING_IMPORTANCE_LABELS[payload.importance]],
+    ['埋设章节', chapterLabel(payload.seedChapterId)],
+    [
+      '计划回收窗口',
+      payoffWindowLabel(payload.payoffChapterMin, payload.payoffChapterMax),
+    ],
+    [
+      '回收章节',
+      payload.payoffChapterId ? chapterLabel(payload.payoffChapterId) : '未回收',
+    ],
+    [
+      '当前正典',
+      meta?.latestCanonChapter
+        ? `第 ${meta.latestCanonChapter.number} 章 · ${meta.latestCanonChapter.title}`
+        : '尚未读取到正典章节',
+    ],
+  ];
+
+  return (
+    <div className="ledger-foreshadowing">
+      <dl className="ledger-foreshadowing-facts">
+        {facts.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+
+      {meta?.overdue ? (
+        <div className="inline-warning">
+          已逾期 {meta.overdueBy} 章：计划最晚在第 {payload.payoffChapterMax} 章回收，
+          当前正典已到第 {meta.latestCanonChapter?.number ?? '?'} 章。逾期只是提醒，不会自动改变伏笔状态。
+        </div>
+      ) : unresolved && payload.payoffChapterMax !== null ? (
+        <p className="ledger-continuity-ok">
+          未逾期：计划最晚在第 {payload.payoffChapterMax} 章回收
+          {meta?.latestCanonChapter
+            ? `；当前正典第 ${meta.latestCanonChapter.number} 章。`
+            : '；当前还没有正典章节。'}
+        </p>
+      ) : unresolved ? (
+        <p className="muted">未填写计划回收结束章，不参与逾期判断。</p>
+      ) : null}
+
+      {hasDraft && currentVersionNo !== null ? (
+        <p className="muted">
+          逾期与提醒基于生效 v{currentVersionNo}；上方展示的是草稿内容，发布后才会进入提醒。
+        </p>
+      ) : null}
+
+      <div className="ledger-character-block">
+        <h5>伏笔说明</h5>
+        {payload.note ? (
+          <div className="ledger-details">{payload.note}</div>
+        ) : (
+          <p className="empty-state">还没有填写伏笔说明。</p>
+        )}
+      </div>
+
+      {payload.resolutionNote ? (
+        <div className="ledger-character-block">
+          <h5>{payload.state === 'paid_off' ? '回收说明' : '放弃原因'}</h5>
+          <div className="ledger-details">{payload.resolutionNote}</div>
+        </div>
+      ) : null}
     </div>
   );
 }

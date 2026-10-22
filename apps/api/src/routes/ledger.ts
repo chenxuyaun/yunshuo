@@ -14,6 +14,8 @@ import {
   createLedgerEntry,
   getCharacterContext,
   getCharacterTimeline,
+  getForeshadowingReminders,
+  getForeshadowingReport,
   getLedgerEntry,
   listLedgerEntries,
   listLedgerVersions,
@@ -24,6 +26,7 @@ import {
 
 const idParams = z.object({ id: z.string().uuid() });
 const chapterContextQuery = z.object({ chapterId: z.string().uuid() });
+const foreshadowingReportQuery = z.object({ workId: z.string().uuid().optional() });
 
 export async function ledgerRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/ledger/entries', async (request) => {
@@ -60,6 +63,18 @@ export async function ledgerRoutes(app: FastifyInstance): Promise<void> {
     const auth = await requireAuth(request);
     const { chapterId } = chapterContextQuery.parse(request.query);
     return getCharacterContext(auth, chapterId);
+  });
+
+  app.get('/api/ledger/foreshadowing/report', async (request) => {
+    const auth = await requireAuth(request);
+    const { workId } = foreshadowingReportQuery.parse(request.query);
+    return getForeshadowingReport(auth, workId);
+  });
+
+  app.get('/api/ledger/foreshadowing/reminders', async (request) => {
+    const auth = await requireAuth(request);
+    const { chapterId } = chapterContextQuery.parse(request.query);
+    return getForeshadowingReminders(auth, chapterId);
   });
 
   app.put('/api/ledger/entries/:id/draft', async (request) => {
