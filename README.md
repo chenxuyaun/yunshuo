@@ -69,6 +69,7 @@ node scripts/m4-acceptance.mjs   # 真实嵌入验收：探测→重建→ready�
 node scripts/retrieval-eval.mjs  # 小样本正典检索评估，报告写入 docs/m4-retrieval-eval.json
 node scripts/ledger-retrieval-eval.mjs   # 小样本账本检索评估，报告写入 docs/m6-ledger-retrieval-eval.json（跑完自清理）
 PERF_API_PID=<监听3101的pid> PERF_STAGES=200,300,500 PERF_CHAPTER_CHARS=600 PERF_CONCURRENCY=1,4,8 PERF_REPORT_NAME=baseline node scripts/m6-perf-baseline.mjs   # 导入与账本扫描的规模/并发基线，需在指向 yunshuo_test 的独立 API 上跑，报告写入 docs/m6-perf-<名称>.json（跑完自清理并断言各表计数回到基线）
+PERF_INDEX_CHAPTERS=1000 PERF_REPORT_NAME=index node scripts/m6-perf-index.mjs   # 千章索引排空与检索基线：除独立 API 外还要有指向同一 yunshuo_test 的 worker 与本机嵌入服务；嵌入服务不可达时直接退出，不会降级成"未配置"来蒙混
 ```
 
 GitHub Actions 在 push 到 `main` 和 pull request 时运行同一套检查：PostgreSQL 17 + pgvector 服务容器、迁移与种子、类型检查与全量测试。
