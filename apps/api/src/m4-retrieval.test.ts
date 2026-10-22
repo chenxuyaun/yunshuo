@@ -5,6 +5,7 @@ import type {
   EmbeddingProbeResponse,
   MeResponse,
   ModelDiscoveryResponse,
+  ModelProviderTestResponse,
   ModelProviderView,
   ReindexResponse,
   SearchResponse,
@@ -1373,4 +1374,99 @@ suite('M4 正典索引与混合检索', () => {
     expect(auditAfter[0]?.n).toBe(auditBefore[0]?.n);
     modelsStub = { kind: 'ids', ids: ['stub-chat'] };
   }, 20_000);
+
+  it('连接测试给可核对的口径，落库的失败提示不含明文密钥，坏密钥时一个字节都不发', async () => {
+    const baseUrl = `http://127.0.0.1:${stubPort}/v1`;
+    const KEY = 'm4-test-secret-key';
+    const created = await call<ModelProviderView>('POST', '/api/model-providers', ownerA, {
+      name: 'M4 连接测试服务商',
+      baseUrl,
+      model: 'stub-chat',
+      purpose: 'chat',
+      apiKey: KEY,
+      isEnabled: false,
+      priority: 8,
+      promptPricePer1m: 2,
+      completionPricePer1m: 8,
+      priceCurrency: 'CNY',
+    });
+    expect(created.status).toBe(200);
+    const providerId = created.body.id;
+    const TEST = `/api/model-providers/${providerId}/test`;
+    stubRequests = [];
+
+    // 成功且配置的模型在清单里：提示要报数量，也要报"找得到我填的那个模型吗"
+    modelsStub = { kind: 'ids', ids: ['stub-chat', 'other-model'] };
+    const ok = await call<ModelProviderTestResponse>('POST', TEST, ownerA);
+    expect(ok.status).toBe(200);
+    expect(ok.body.result.status).toBe('ok');
+    expect(ok.body.result.modelCount).toBe(2);
+    expect(ok.body.result.configuredModelAvailable).toBe(true);
+    expect(ok.body.result.message).toBe('连接成功，返回 2 个模型，已找到 stub-chat。');
+    // 用的是库里那份密钥，不是把明文回传给客户端；请求头里出现是预期的
+    expect(stubRequests[0]?.authorization).toBe(`Bearer ${KEY}`);
+    expect(JSON.stringify(ok.body.provider)).not.toContain(KEY);
+
+    // 连上了但没有配置的模型：仍是"连接成功"，可"未找到"必须写在同一句里
+    modelsStub = { kind: 'ids', ids: ['other-model'] };
+    const missing = await call<ModelProviderTestResponse>('POST', TEST, ownerA);
+    expect(missing.body.result.status).toBe('ok');
+    expect(missing.body.result.configuredModelAvailable).toBe(false);
+    expect(missing.body.result.message).toBe('连接成功，返回 1 个模型，但未找到 stub-chat。');
+
+    // 端点 500 且响应体回显鉴权头：这句话既回给界面，也会被写进 last_test_message 长期留存
+    modelsStub = { kind: 'echo_authorization', status: 500 };
+    const failed = await call<ModelProviderTestResponse>('POST', TEST, ownerA);
+    expect(failed.body.result.status).toBe('failed');
+    expect(failed.body.result.message).toContain('HTTP 500');
+    expect(failed.body.result.message).not.toContain(KEY);
+    expect(failed.body.provider.lastTest?.message).not.toContain(KEY);
+    const stored = await sql<{ last_test_message: string; last_test_status: string }[]>`
+      SELECT last_test_message, last_test_status FROM model_providers WHERE id = ${providerId}
+    `;
+    expect(stored[0]?.last_test_status).toBe('failed');
+    expect(stored[0]?.last_test_message).toContain('••••');
+    expect(stored[0]?.last_test_message).not.toContain(KEY);
+
+    // HTTP 200 而响应形状不对：算"连上了"，但模型数与可用性只能是未知
+    modelsStub = { kind: 'no_data_field' };
+    const shape = await call<ModelProviderTestResponse>('POST', TEST, ownerA);
+    expect(shape.body.result.status).toBe('ok');
+    expect(shape.body.result.modelCount).toBeNull();
+    expect(shape.body.result.configuredModelAvailable).toBeNull();
+    expect(shape.body.result.message).toBe('连接成功（HTTP 200），但响应未包含模型清单。');
+
+    // 库里那份密钥解不开：如实失败，并且不发任何网络请求（不能退化成一次无鉴权探测）
+    await sql`UPDATE model_providers SET api_key_ciphertext = ${'not-a-ciphertext'} WHERE id = ${providerId}`;
+    const requestsBefore = stubRequests.length;
+    modelsStub = { kind: 'ids', ids: ['stub-chat'] };
+    const unreadable = await call<ModelProviderTestResponse>('POST', TEST, ownerA);
+    expect(unreadable.body.result.status).toBe('failed');
+    expect(unreadable.body.result.message).toBe('已保存的 API Key 无法解密，请重新录入后再测试');
+    expect(stubRequests).toHaveLength(requestsBefore);
+
+    // 权限与隔离：作者连测试都点不了，跨工作区与幽灵 id 都是 404
+    expectError(await call('POST', TEST, authorA), 403, 'FORBIDDEN');
+    expectError(await call('POST', TEST, ownerB), 404, 'PROVIDER_NOT_FOUND');
+    expectError(await call('POST', `/api/model-providers/${randomUUID()}/test`, ownerA), 404, 'PROVIDER_NOT_FOUND');
+
+    // 每次测试一行审计，result 随成败；被拒的三次调用不留审计，元数据里也没有密钥
+    const audits = await sql<{ result: string; actor_type: string; metadata: string }[]>`
+      SELECT result, actor_type, metadata::text AS metadata FROM audit_log
+      WHERE action = 'model_provider.test' AND object_id = ${providerId}
+      ORDER BY created_at ASC, id ASC
+    `;
+    expect(audits.map((row) => row.result)).toEqual(['success', 'success', 'failure', 'success', 'failure']);
+    expect(audits.every((row) => row.actor_type === 'human')).toBe(true);
+    expect(audits.every((row) => !row.metadata.includes(KEY))).toBe(true);
+
+    // 删服务商行不会带走它的 create/test 审计——§十一 那类每次运行 +N 的孤儿就是这么长出来的
+    await sql`DELETE FROM model_providers WHERE id = ${providerId}`;
+    await sql`DELETE FROM audit_log WHERE object_id = ${providerId}`;
+    const leftover = await sql<{ n: string }[]>`
+      SELECT count(*)::text AS n FROM audit_log WHERE object_id = ${providerId}
+    `;
+    expect(leftover[0]?.n).toBe('0');
+    modelsStub = { kind: 'ids', ids: ['stub-chat'] };
+  });
 });
