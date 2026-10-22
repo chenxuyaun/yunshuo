@@ -769,6 +769,234 @@ suite('M2 修订 / 回滚 / 豁免', () => {
     expect(abandoned.status).toBe(200);
     expect(abandoned.body.status).toBe('canon');
   });
+
+  it('状态机对非法转移逐条拒：正典只读、空草稿不落、无租约不写、门禁未过不暂存', async () => {
+    interface Trace {
+      drafts: string;
+      evals: string;
+      staged: string;
+      audits: string;
+      versions: string;
+      failedIntents: string;
+      status: string;
+      currentVersionId: string | null;
+    }
+
+    async function trace(): Promise<Trace> {
+      const rows = await sql<Trace[]>`
+        SELECT
+          (SELECT count(*)::text FROM draft_revisions dr
+             JOIN draft_branches db ON db.id = dr.branch_id
+             WHERE db.chapter_id = ${chapterId}) AS drafts,
+          (SELECT count(*)::text FROM gate_evaluations WHERE chapter_id = ${chapterId}) AS evals,
+          (SELECT count(*)::text FROM staged_drafts WHERE chapter_id = ${chapterId}) AS staged,
+          (SELECT count(*)::text FROM audit_log
+             WHERE object_id = ${chapterId} OR metadata ->> 'chapterId' = ${chapterId}) AS audits,
+          (SELECT count(*)::text FROM canon_versions WHERE chapter_id = ${chapterId}) AS versions,
+          (SELECT count(*)::text FROM commit_intents
+             WHERE chapter_id = ${chapterId} AND status = 'failed') AS "failedIntents",
+          (SELECT status FROM chapters WHERE id = ${chapterId}) AS status,
+          (SELECT current_version_id::text FROM chapters WHERE id = ${chapterId}) AS "currentVersionId"
+      `;
+      return rows[0]!;
+    }
+
+    const draftPath = `/api/chapters/${chapterId}/draft`;
+    const leasePath = `/api/chapters/${chapterId}/lease`;
+    const stagePath = `/api/chapters/${chapterId}/stage`;
+    const gatesPath = `/api/chapters/${chapterId}/gates`;
+    const revisionPath = `/api/chapters/${chapterId}/revision`;
+    const abandonPath = `/api/chapters/${chapterId}/revision/abandon`;
+    const commitPath = `/api/chapters/${chapterId}/commit`;
+
+    async function save(content: string): Promise<string> {
+      const saved = await call<SaveDraftResponse>(owner.cookie, 'PUT', draftPath, { content });
+      expect(saved.status).toBe(200);
+      return saved.body.draft.contentHash;
+    }
+
+    async function evaluate(): Promise<GateEvaluationView> {
+      const result = await call<GateEvaluationView>(owner.cookie, 'POST', gatesPath);
+      expect(result.status).toBe(200);
+      return result.body;
+    }
+
+    // 起点：上一个用例放弃修订后，章节回到正典
+    const canonTrace = await trace();
+    expect(canonTrace.status).toBe('canon');
+
+    // ① 正典只读：连取得租约都被拒，文案把人指向"开始修订"
+    const readOnly = await call<ErrorBody>(owner.cookie, 'POST', leasePath);
+    expectError(readOnly, 409, 'CHAPTER_READ_ONLY');
+    expect(readOnly.body.error.message).toBe('正典只读；请从“开始修订”进入修订流程');
+
+    // ② 正典不收草稿；空白检查还排在状态检查之前
+    expectError(await call(owner.cookie, 'PUT', draftPath, { content: '   ' }), 409, 'EMPTY_DRAFT');
+    const notEditable = await call<ErrorBody>(owner.cookie, 'PUT', draftPath, { content: contentA });
+    expectError(notEditable, 409, 'CHAPTER_NOT_EDITABLE');
+    expect(notEditable.body.error.message).toBe('章节当前状态 canon 不允许写草稿');
+
+    // ③ 正典既不能暂存也不能取消暂存
+    expectError(
+      await call(owner.cookie, 'POST', stagePath, {
+        evaluationId: randomUUID(),
+        expectedContentHash: '0'.repeat(64),
+      }),
+      409,
+      'CHAPTER_NOT_STAGEABLE',
+    );
+    expectError(await call(owner.cookie, 'DELETE', stagePath), 409, 'CHAPTER_NOT_STAGED');
+
+    // ④ 这一整轮拒绝不落任何一行：草稿、证据、暂存、审计与指针全都不动
+    expect(await trace()).toEqual(canonTrace);
+
+    // 进入修订：startRevision 把租约顺手发给发起者，并把当前正典复制成第一条草稿，
+    // 所以库里草稿 +1 是这一步该发生的写痕，不是泄漏。
+    const started = await call<StartRevisionResponse>(owner.cookie, 'POST', revisionPath);
+    expect(started.status).toBe(200);
+    expect(started.body.status).toBe('revision');
+    const afterRevision = await trace();
+    expect(Number(afterRevision.drafts)).toBe(Number(canonTrace.drafts) + 1);
+    expect(afterRevision.evals).toBe(canonTrace.evals);
+    expect(afterRevision.staged).toBe(canonTrace.staged);
+    expect(afterRevision.currentVersionId).toBe(canonTrace.currentVersionId);
+
+    // ⑤ "空草稿不落盘"有两道闸：契约的 min(1) 先在边界拦下空串，
+    //    纯空白能过边界但过不了服务端的 isBlank。两层都在状态转移之后、落库之前。
+    const beforeWrites = await trace();
+    const boundaryBlank = await call<ErrorBody>(owner.cookie, 'PUT', draftPath, { content: '' });
+    expectError(boundaryBlank, 400, 'VALIDATION');
+    expect(boundaryBlank.body.error.message).toBe('请求参数不合法');
+    expect(JSON.stringify(boundaryBlank.body.error.details)).toContain('空草稿不落盘');
+    const serviceBlank = await call<ErrorBody>(owner.cookie, 'PUT', draftPath, { content: '   ' });
+    expectError(serviceBlank, 409, 'EMPTY_DRAFT');
+    expect(serviceBlank.body.error.message).toBe('空草稿不落盘');
+    expect(await trace()).toEqual(beforeWrites);
+
+    // ⑥ 没有有效租约才叫 LEASE_REQUIRED（区别于上一用例钉过的"别人持有时是 LEASE_HELD"）：
+    //    持有者自己释放租约后，无论他来写还是主笔来写，都是同一句"请先取得编辑租约"，
+    //    且拒绝里明确 holder 为 null——界面不会把上一个人显示成还在锁定。
+    expect((await call(owner.cookie, 'DELETE', leasePath)).status).toBe(200);
+    const ownerNoLease = await call<ErrorBody>(owner.cookie, 'PUT', draftPath, { content: contentA });
+    expectError(ownerNoLease, 409, 'LEASE_REQUIRED');
+    expect(ownerNoLease.body.error.message).toBe('该章节没有有效租约，请先取得编辑租约');
+    expect(ownerNoLease.body.error.details).toEqual({ holder: null });
+    const leadNoLease = await call<ErrorBody>(lead.cookie, 'PUT', draftPath, { content: contentA });
+    expectError(leadNoLease, 409, 'LEASE_REQUIRED');
+    expect(await trace()).toEqual(beforeWrites);
+    expect((await call(owner.cookie, 'POST', leasePath)).status).toBe(200);
+
+    // ⑦ 一次成功保存把状态从 revision 拉回 writing（saveDraft 无条件写 'writing'），
+    //    这也是后面"放弃修订"仍能工作的原因：abandon 同时接受 revision 与 writing。
+    //    门禁没过就不能暂存：短正文评估成 failed，结论写进拒绝文案里
+    const failingHash = await save('林默仿佛走了一步。');
+    expect((await trace()).status).toBe('writing');
+    const failingEval = await evaluate();
+    expect(failingEval.status).toBe('failed');
+    const gateRejected = await call<ErrorBody>(owner.cookie, 'POST', stagePath, {
+      evaluationId: failingEval.id,
+      expectedContentHash: failingHash,
+    });
+    expectError(gateRejected, 409, 'GATE_NOT_PASSED');
+    expect(gateRejected.body.error.message).toBe('门禁结论为 failed，不能暂存');
+
+    // ⑧ 证据与草稿的对应关系：四种不一致各拒一次，检查顺序也钉住
+    const hashA = await save(contentA);
+    const evalA = await evaluate();
+    expect(evalA.status).toBe('passed');
+    const hashB = await save(contentB);
+    const beforeRejections = await trace();
+
+    // 草稿已换、证据还是旧的：正文对不上
+    const staleEval = await call<ErrorBody>(owner.cookie, 'POST', stagePath, {
+      evaluationId: evalA.id,
+      expectedContentHash: hashB,
+    });
+    expectError(staleEval, 409, 'EVALUATION_STALE');
+    expect(staleEval.body.error.message).toBe('门禁评估对应的正文不是当前草稿，请重新跑门禁');
+
+    // 期望哈希还是旧草稿的：草稿侧先变化，这一枪先响
+    const changedDraft = await call<ErrorBody>(owner.cookie, 'POST', stagePath, {
+      evaluationId: evalA.id,
+      expectedContentHash: hashA,
+    });
+    expectError(changedDraft, 409, 'DRAFT_CHANGED');
+    expect(changedDraft.body.error.message).toBe('保存后草稿已变化，请重新跑门禁');
+
+    // 哈希对得上但证据是别人的：查不到就是不属于本章
+    expectError(
+      await call(owner.cookie, 'POST', stagePath, {
+        evaluationId: randomUUID(),
+        expectedContentHash: hashB,
+      }),
+      409,
+      'EVALUATION_NOT_FOUND',
+    );
+
+    // 没有草稿的人跑门禁：拒的是"先保存"，不去算正典正文
+    expectError(await call(lead.cookie, 'POST', gatesPath), 409, 'NO_DRAFT');
+
+    // 四次拒绝都不建暂存、不再产出证据、一条审计都不留
+    const afterRejections = await trace();
+    expect(afterRejections.staged).toBe(beforeRejections.staged);
+    expect(afterRejections.evals).toBe(beforeRejections.evals);
+    expect(afterRejections.audits).toBe(beforeRejections.audits);
+    expect(afterRejections.status).toBe('writing');
+
+    // ⑨ 暂存与取消暂存可以往返，但取消第二次就没东西可取消。
+    //    取消只把章节状态改回 writing，暂存行留在库里当历史——真正的闸是状态：
+    //    取消后详情读不到暂存，拿着那个暂存 id 去提交也被 CHAPTER_NOT_COMMITTABLE 拒。
+    const evalB = await evaluate();
+    const beforeStage = await trace();
+    const stagedView = await call<StageResponse>(owner.cookie, 'POST', stagePath, {
+      evaluationId: evalB.id,
+      expectedContentHash: hashB,
+    });
+    expect(stagedView.status).toBe(200);
+    const stagedDraftId = stagedView.body.stagedDraft.id;
+    const afterStage = await trace();
+    expect(Number(afterStage.staged)).toBe(Number(beforeStage.staged) + 1);
+    expect(afterStage.status).toBe('staged');
+
+    expect((await call(owner.cookie, 'DELETE', stagePath)).status).toBe(200);
+    const afterUnstage = await trace();
+    expect(afterUnstage.status).toBe('writing');
+    expect(afterUnstage.staged).toBe(afterStage.staged);
+    expect((await getChapter(owner.cookie)).stagedDraft).toBeNull();
+    expectError(await call(owner.cookie, 'DELETE', stagePath), 409, 'CHAPTER_NOT_STAGED');
+
+    const ghostCommit = await call<ErrorBody>(owner.cookie, 'POST', commitPath, {
+      idempotencyKey: `m2-state-unstaged-${randomUUID()}`,
+      targetChapterId: chapterId,
+      expectedCurrentVersionId: canonTrace.currentVersionId,
+      stagedDraftId,
+    });
+    expectError(ghostCommit, 409, 'CHAPTER_NOT_COMMITTABLE');
+    expect(ghostCommit.body.error.message).toBe('章节当前状态 writing 不允许提交');
+
+    // ⑩ 放弃修订只认一次，第二次说清当前状态
+    const abandonedAgain = await call<AbandonRevisionResponse>(
+      owner.cookie,
+      'POST',
+      abandonPath,
+    );
+    expect(abandonedAgain.status).toBe(200);
+    const repeatAbandon = await call<ErrorBody>(owner.cookie, 'POST', abandonPath);
+    expectError(repeatAbandon, 409, 'CHAPTER_NOT_IN_REVISION');
+    expect(repeatAbandon.body.error.message).toBe('章节当前状态 canon，不能放弃修订');
+
+    // ⑪ 草稿多 4 行 = 开始修订时复制正典那 1 行 + 显式保存 3 次；门禁证据多 3 行；
+    //    暂存多 1 行且取消后仍留着（历史）；正典版本数与指针一步没动；
+    //    唯一的额外写痕是那次被拒的提交意图——失败留痕，不是把失败伪装成没发生。
+    const endTrace = await trace();
+    expect(endTrace.status).toBe('canon');
+    expect(endTrace.currentVersionId).toBe(canonTrace.currentVersionId);
+    expect(endTrace.versions).toBe(canonTrace.versions);
+    expect(Number(endTrace.drafts)).toBe(Number(canonTrace.drafts) + 4);
+    expect(Number(endTrace.evals)).toBe(Number(canonTrace.evals) + 3);
+    expect(Number(endTrace.staged)).toBe(Number(canonTrace.staged) + 1);
+    expect(Number(endTrace.failedIntents)).toBe(Number(canonTrace.failedIntents) + 1);
+  });
 });
 
 afterAll(async () => {
