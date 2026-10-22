@@ -738,6 +738,82 @@ suite('M6-4 检索、AI 上下文、门禁提示与章节关联', () => {
     }
   });
 
+  it('正典与账本同模型但维度漂移时仍分别取查询向量，维度不符的一路只走词法', async () => {
+    const canonChunkId = randomUUID();
+    const canonContent = '前夜，林默在北门守夜，铜钉在雨里发亮。';
+    const driftedDimensions = 8;
+    const countQueryCalls = async () =>
+      sql<{ count: string }[]>`
+        SELECT count(*)::text AS count FROM model_calls
+        WHERE workspace_id = ${workspaceA}
+          AND purpose = 'embedding_query'
+          AND model = ${EMBEDDING_MODEL}
+      `;
+    const callsBefore = Number((await countQueryCalls())[0]?.count ?? '0');
+
+    try {
+      await sql`
+        INSERT INTO canon_chunks (
+          id, workspace_id, work_id, chapter_id, version_id,
+          chunk_index, paragraph_start, paragraph_end, char_start, char_end,
+          content, content_hash, lexical_text
+        )
+        VALUES (
+          ${canonChunkId}, ${workspaceA}, ${workA}, ${prevChapterA}, ${prevVersionA},
+          0, 0, 0, 0, ${canonContent.length},
+          ${canonContent}, ${contentHash(canonContent)}, ${buildLexicalText(canonContent)}
+        )
+      `;
+      await sql`
+        INSERT INTO chunk_embeddings (chunk_id, provider_id, model, dimensions, embedding)
+        VALUES (${canonChunkId}, NULL, ${EMBEDDING_MODEL}, ${EMBEDDING_DIMENSIONS}, '[1,0,0,0]'::vector)
+      `;
+      await sql`
+        INSERT INTO index_status (
+          chapter_id, version_id, status, chunk_count, provider_name, model, dimensions, updated_at
+        )
+        VALUES (
+          ${prevChapterA}, ${prevVersionA}, 'ready', 1, 'M6-4 嵌入测试',
+          ${EMBEDDING_MODEL}, ${EMBEDDING_DIMENSIONS}, now()
+        )
+      `;
+      await sql`
+        UPDATE ledger_chunk_embeddings
+        SET dimensions = ${driftedDimensions}, embedding = '[1,0,0,0,0,0,0,0]'::vector
+      `;
+      await sql`UPDATE ledger_index_status SET dimensions = ${driftedDimensions}`;
+
+      embedCalls.length = 0;
+      const query = encodeURIComponent('铜钉');
+      const drifted = await call<SearchResponse>(
+        'GET',
+        `/api/search?q=${query}&workId=${workA}&limit=20`,
+        ownerA,
+      );
+
+      expect(drifted.status).toBe(200);
+      expect(drifted.body.mode).toBe('hybrid');
+      expect(drifted.body.coverage.vectorModel).toBe(EMBEDDING_MODEL);
+      expect(drifted.body.ledgerCoverage.vectorModel).toBe(EMBEDDING_MODEL);
+      // 两侧模型名相同，只有索引维度不同：不能共用一个查询向量，也不能把 4 维向量打到 8 维索引上。
+      expect(embedCalls).toEqual([EMBEDDING_MODEL, EMBEDDING_MODEL]);
+      expect(drifted.body.results.some((item) => item.vectorRank !== null)).toBe(true);
+      expect(drifted.body.semanticReason).toBeNull();
+      expect(drifted.body.ledgerResults.length).toBeGreaterThan(0);
+      expect(drifted.body.ledgerResults.every((item) => item.vectorRank === null)).toBe(true);
+      expect(drifted.body.ledgerReason).toContain('账本向量通道未执行');
+      expect(drifted.body.ledgerReason).toContain(`与索引维度 ${driftedDimensions} 不一致`);
+      const callsAfter = Number((await countQueryCalls())[0]?.count ?? '0');
+      expect(callsAfter - callsBefore).toBe(2);
+    } finally {
+      await sql`UPDATE ledger_chunk_embeddings SET dimensions = ${EMBEDDING_DIMENSIONS}, embedding = '[1,0,0,0]'::vector`;
+      await sql`UPDATE ledger_index_status SET dimensions = ${EMBEDDING_DIMENSIONS}`;
+      await sql`DELETE FROM chunk_embeddings WHERE chunk_id = ${canonChunkId}`;
+      await sql`DELETE FROM canon_chunks WHERE id = ${canonChunkId}`;
+      await sql`DELETE FROM index_status WHERE chapter_id = ${prevChapterA}`;
+    }
+  });
+
   it('未配置嵌入服务的账本条目仍可词法检索，并如实说明仅词法可用', async () => {
     const entry = await createAndPublish({
       kind: 'setting',

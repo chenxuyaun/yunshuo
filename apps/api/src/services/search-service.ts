@@ -696,6 +696,7 @@ export async function searchCanon(input: SearchCanonInput): Promise<CanonSearchO
 
   const canonTarget = vectorTargetOf(coverage);
   const ledgerTarget = vectorTargetOf(ledgerCoverage);
+  // 维度也必须一致：共用一个查询向量会让 pgvector 拿不同维度的向量比距离，直接 500。
   const sameVectorTarget =
     canonTarget !== null &&
     ledgerTarget !== null &&
