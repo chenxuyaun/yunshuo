@@ -895,17 +895,24 @@ export async function saveLedgerDraft(
       )
     `;
     if (entry.status === 'draft' && !entry.current_version_id) {
-      await tx`
-        UPDATE ledger_entries SET
-          name = ${name},
-          aliases = ${aliases},
-          summary = ${summary},
-          source_chapter_id = ${sourceChapterId},
-          draft_version_id = ${versionId},
-          updated_by = ${auth.user.id},
-          updated_at = now()
-        WHERE id = ${entryId} AND workspace_id = ${workspaceId}
-      `;
+      try {
+        await tx`
+          UPDATE ledger_entries SET
+            name = ${name},
+            aliases = ${aliases},
+            summary = ${summary},
+            source_chapter_id = ${sourceChapterId},
+            draft_version_id = ${versionId},
+            updated_by = ${auth.user.id},
+            updated_at = now()
+          WHERE id = ${entryId} AND workspace_id = ${workspaceId}
+        `;
+      } catch (error) {
+        if (isUniqueViolation(error)) {
+          throw conflict('LEDGER_NAME_CONFLICT', '名称或别名与已有条目冲突');
+        }
+        throw error;
+      }
     } else {
       await tx`
         UPDATE ledger_entries SET

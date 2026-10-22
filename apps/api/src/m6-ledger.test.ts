@@ -235,6 +235,7 @@ suite('M6-0 账本：版本、审计、权限与工作区隔离', () => {
           DELETE FROM ledger_entry_versions
           WHERE workspace_id = ${workspaceId}
         `;
+        await sql`DELETE FROM outbox WHERE payload->>'workspaceId' = ${workspaceId}`;
         await sql`DELETE FROM ledger_entries WHERE workspace_id = ${workspaceId}`;
         await sql`DELETE FROM audit_log WHERE workspace_id = ${workspaceId}`;
         await sql`DELETE FROM events WHERE workspace_id = ${workspaceId}`;
@@ -632,5 +633,53 @@ suite('M6-0 账本：版本、审计、权限与工作区隔离', () => {
     expect(workList.body.entries.some((entry) => entry.kind === 'character')).toBe(true);
     expect(workList.body.entries.some((entry) => entry.kind === 'foreshadowing')).toBe(true);
     expect(workList.body.entries.some((entry) => entry.status === 'archived')).toBe(false);
+  });
+
+  it('别名唯一性由数据库兜底：并发写入同一别名只有一个成功，另一个返回 409', async () => {
+    const alias = `并发别名-${RUN_ID}`;
+    const entryA = await createSetting(author, `并发甲-${RUN_ID}`);
+    const entryB = await createSetting(author, `并发乙-${RUN_ID}`);
+
+    try {
+      const [first, second] = await Promise.all([
+        saveDraft(author, entryA.id, entryA.draftVersion!.id, {
+          aliases: [alias],
+          changeSummary: '并发别名 A',
+        }),
+        saveDraft(author, entryB.id, entryB.draftVersion!.id, {
+          aliases: [alias],
+          changeSummary: '并发别名 B',
+        }),
+      ]);
+      expect([first.status, second.status].sort()).toEqual([200, 409]);
+
+      const loser = (first.status === 409 ? first.body : second.body) as ErrorBody;
+      expect(loser.error.code).toBe('LEDGER_NAME_CONFLICT');
+
+      const winnerId = first.status === 200 ? entryA.id : entryB.id;
+      const aliasRows = await sql<{ entry_id: string }[]>`
+        SELECT entry_id FROM ledger_entry_aliases WHERE alias_key = ${alias.toLowerCase()}
+      `;
+      expect(aliasRows.map((row) => row.entry_id)).toEqual([winnerId]);
+
+      const loserEntry = await sql<{ aliases: string[] }[]>`
+        SELECT aliases FROM ledger_entries WHERE id = ${winnerId === entryA.id ? entryB.id : entryA.id}
+      `;
+      expect(loserEntry[0]?.aliases).toEqual([]);
+    } finally {
+      for (const entryId of [entryA.id, entryB.id]) {
+        await call('POST', `/api/ledger/entries/${entryId}/archive`, owner, {
+          reason: '测试后清理',
+          discardDraft: true,
+        });
+      }
+    }
+
+    const remaining = await sql<{ count: string }[]>`
+      SELECT count(*)::text AS count
+      FROM ledger_entry_aliases
+      WHERE workspace_id = ${workspaceA} AND alias_key = ${alias.toLowerCase()}
+    `;
+    expect(remaining[0]?.count).toBe('0');
   });
 });

@@ -38,6 +38,7 @@ interface ErrorBody {
 const RUN_ID = randomUUID().slice(0, 8);
 const EMAIL_SUFFIX = `@m6-integration-${RUN_ID}.test`;
 const EMBEDDING_MODEL = 'stub-embed';
+const ALT_EMBEDDING_MODEL = 'stub-embed-alt';
 const EMBEDDING_DIMENSIONS = 4;
 
 const dbAvailable = await sql`SELECT 1`
@@ -50,6 +51,7 @@ const dbAvailable = await sql`SELECT 1`
 const suite = dbAvailable ? describe : describe.skip;
 
 suite('M6-4 检索、AI 上下文、门禁提示与章节关联', () => {
+  const embedCalls: string[] = [];
   let app: FastifyInstance;
   let stub: Server;
   let stubPort = 0;
@@ -263,11 +265,13 @@ suite('M6-4 检索、AI 上下文、门禁提示与章节关联', () => {
       });
       request.on('end', () => {
         let inputs: string[] = [];
+        let requestedModel = '';
         try {
-          const parsed = JSON.parse(raw) as { input?: unknown };
+          const parsed = JSON.parse(raw) as { input?: unknown; model?: unknown };
           if (Array.isArray(parsed.input)) {
             inputs = parsed.input.map((item) => String(item));
           }
+          if (typeof parsed.model === 'string') requestedModel = parsed.model;
         } catch {
           inputs = [];
         }
@@ -276,6 +280,7 @@ suite('M6-4 检索、AI 上下文、门禁提示与章节关联', () => {
           response.end(JSON.stringify({ error: { message: 'stub 未实现该接口' } }));
           return;
         }
+        embedCalls.push(requestedModel);
         response.writeHead(200, { 'content-type': 'application/json' });
         response.end(
           JSON.stringify({
@@ -637,6 +642,102 @@ suite('M6-4 检索、AI 上下文、门禁提示与章节关联', () => {
     expect(noWork.body.ledgerResults.map((item) => item.name)).not.toContain('外部工作区通行令');
   });
 
+  it('正典与账本嵌入模型不同时分别生成查询向量，只启用其一时如实降级', async () => {
+    const canonChunkId = randomUUID();
+    const canonContent = '前夜，林默在北门守夜，铜钉在雨里发亮。';
+    let altProviderId = '';
+    try {
+      const altProvider = await call<{ id: string }>('POST', '/api/model-providers', ownerA, {
+        name: 'M6-4 备用嵌入服务商',
+        baseUrl: `http://127.0.0.1:${stubPort}/v1`,
+        model: ALT_EMBEDDING_MODEL,
+        purpose: 'embedding',
+        apiKey: 'm6-embedding-key-alt',
+        isEnabled: true,
+        priority: 3,
+        promptPricePer1m: 2,
+        priceCurrency: 'CNY',
+      });
+      expect(altProvider.status).toBe(200);
+      altProviderId = altProvider.body.id;
+
+      await sql`
+        INSERT INTO canon_chunks (
+          id, workspace_id, work_id, chapter_id, version_id,
+          chunk_index, paragraph_start, paragraph_end, char_start, char_end,
+          content, content_hash, lexical_text
+        )
+        VALUES (
+          ${canonChunkId}, ${workspaceA}, ${workA}, ${prevChapterA}, ${prevVersionA},
+          0, 0, 0, 0, ${canonContent.length},
+          ${canonContent}, ${contentHash(canonContent)}, ${buildLexicalText(canonContent)}
+        )
+      `;
+      await sql`
+        INSERT INTO chunk_embeddings (chunk_id, provider_id, model, dimensions, embedding)
+        VALUES (${canonChunkId}, NULL, ${EMBEDDING_MODEL}, ${EMBEDDING_DIMENSIONS}, '[1,0,0,0]'::vector)
+      `;
+      await sql`
+        INSERT INTO index_status (
+          chapter_id, version_id, status, chunk_count, provider_name, model, dimensions, updated_at
+        )
+        VALUES (
+          ${prevChapterA}, ${prevVersionA}, 'ready', 1, 'M6-4 嵌入测试',
+          ${EMBEDDING_MODEL}, ${EMBEDDING_DIMENSIONS}, now()
+        )
+      `;
+      await sql`UPDATE ledger_chunk_embeddings SET model = ${ALT_EMBEDDING_MODEL}`;
+      await sql`UPDATE ledger_index_status SET model = ${ALT_EMBEDDING_MODEL}`;
+
+      embedCalls.length = 0;
+      const query = encodeURIComponent('铜钉');
+      const both = await call<SearchResponse>(
+        'GET',
+        `/api/search?q=${query}&workId=${workA}&limit=20`,
+        ownerA,
+      );
+      expect(both.status).toBe(200);
+      expect(both.body.mode).toBe('hybrid');
+      expect(both.body.coverage.vectorModel).toBe(EMBEDDING_MODEL);
+      expect(both.body.ledgerCoverage.vectorModel).toBe(ALT_EMBEDDING_MODEL);
+      expect(both.body.ledgerReason).toBeNull();
+      expect(both.body.results.some((item) => item.vectorRank !== null)).toBe(true);
+      expect(both.body.ledgerResults.some((item) => item.vectorRank !== null)).toBe(true);
+      expect(new Set(embedCalls)).toEqual(new Set([EMBEDDING_MODEL, ALT_EMBEDDING_MODEL]));
+
+      const altCalls = await sql<{ id: string }[]>`
+        SELECT id FROM model_calls
+        WHERE workspace_id = ${workspaceA}
+          AND purpose = 'embedding_query'
+          AND model = ${ALT_EMBEDDING_MODEL}
+      `;
+      expect(altCalls.length).toBeGreaterThan(0);
+
+      await sql`UPDATE model_providers SET is_enabled = false WHERE id = ${altProviderId}`;
+      embedCalls.length = 0;
+      const degraded = await call<SearchResponse>(
+        'GET',
+        `/api/search?q=${query}&workId=${workA}&limit=20`,
+        ownerA,
+      );
+      expect(degraded.status).toBe(200);
+      expect(degraded.body.results.some((item) => item.vectorRank !== null)).toBe(true);
+      expect(degraded.body.ledgerResults.every((item) => item.vectorRank === null)).toBe(true);
+      expect(degraded.body.ledgerReason).toContain('不一致');
+      expect(embedCalls).toEqual([EMBEDDING_MODEL]);
+    } finally {
+      await sql`UPDATE ledger_chunk_embeddings SET model = ${EMBEDDING_MODEL}`;
+      await sql`UPDATE ledger_index_status SET model = ${EMBEDDING_MODEL}`;
+      await sql`DELETE FROM chunk_embeddings WHERE chunk_id = ${canonChunkId}`;
+      await sql`DELETE FROM canon_chunks WHERE id = ${canonChunkId}`;
+      await sql`DELETE FROM index_status WHERE chapter_id = ${prevChapterA}`;
+      await sql`DELETE FROM model_calls WHERE model = ${ALT_EMBEDDING_MODEL}`;
+      if (altProviderId) {
+        await sql`DELETE FROM model_providers WHERE id = ${altProviderId}`;
+      }
+    }
+  });
+
   it('未配置嵌入服务的账本条目仍可词法检索，并如实说明仅词法可用', async () => {
     const entry = await createAndPublish({
       kind: 'setting',
@@ -770,6 +871,44 @@ suite('M6-4 检索、AI 上下文、门禁提示与章节关联', () => {
     expect(empty.view.status).toBe('unavailable');
     expect(empty.view.reason).toContain('尚未发布');
     expect(empty.sections).toHaveLength(0);
+  });
+
+  it('超出单条预算的账本条目在引用上逐条标记截断', async () => {
+    const longEntry = await createAndPublish({
+      kind: 'setting',
+      workId: workA,
+      name: '超长封印说明',
+      aliases: [],
+      summary: '用于验证逐条截断标记',
+      payload: {
+        category: 'item',
+        details: '钉'.repeat(900),
+        tags: ['封印'],
+        verification: 'verified',
+      },
+    });
+    try {
+      const bundle = await loadAiLedgerContext({
+        workspaceId: workspaceA,
+        workId: workA,
+        currentChapterNumber: 3,
+      });
+      const longCitation = bundle.view.citations.find(
+        (citation) => citation.entryId === longEntry.id,
+      );
+      expect(longCitation).toBeTruthy();
+      expect(longCitation!.truncated).toBe(true);
+      expect(longCitation!.chars).toBe(701);
+
+      const normalCitation = bundle.view.citations.find(
+        (citation) => citation.entryId === settingA.id,
+      );
+      expect(normalCitation).toBeTruthy();
+      expect(normalCitation!.truncated).toBe(false);
+      expect(bundle.view.truncated).toBe(true);
+    } finally {
+      await sql`DELETE FROM ledger_entries WHERE id = ${longEntry.id}`;
+    }
   });
 
   it('门禁提示引用别名与伏笔窗口，且不改变 dev-v0 硬门禁结论', async () => {

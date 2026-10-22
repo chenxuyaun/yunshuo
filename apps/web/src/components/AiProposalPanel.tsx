@@ -428,6 +428,7 @@ export function AiProposalPanel({ chapter, content, dirty, canEditNow, onAdopt }
                         {LEDGER_KIND_LABELS[citation.kind]} · {citation.name} · v
                         {citation.versionNo} · {LEDGER_SCOPE_LABELS[citation.scope]} ·{' '}
                         {citation.chars} 字
+                        {citation.truncated ? ' · 本条截断' : ''}
                       </span>
                     </li>
                   ))}

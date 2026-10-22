@@ -677,6 +677,15 @@ function acceptVectorRows<T extends { score: number | null }>(
     : [];
 }
 
+function vectorTargetOf(coverage: {
+  vectorModel: string | null;
+  vectorDimensions: number | null;
+}): VectorTarget | null {
+  return coverage.vectorModel !== null && coverage.vectorDimensions !== null
+    ? { model: coverage.vectorModel, dimensions: coverage.vectorDimensions }
+    : null;
+}
+
 export async function searchCanon(input: SearchCanonInput): Promise<CanonSearchOutcome> {
   const limit = Math.min(20, Math.max(1, input.limit ?? 8));
   const tokens = buildLexicalQuery(input.query);
@@ -685,38 +694,48 @@ export async function searchCanon(input: SearchCanonInput): Promise<CanonSearchO
     loadLedgerRetrievalCoverage(input.workspaceId, input.workId),
   ]);
 
-  const vectorTarget: VectorTarget | null =
-    coverage.vectorModel !== null && coverage.vectorDimensions !== null
-      ? { model: coverage.vectorModel, dimensions: coverage.vectorDimensions }
-      : ledgerCoverage.vectorModel !== null && ledgerCoverage.vectorDimensions !== null
-        ? {
-            model: ledgerCoverage.vectorModel,
-            dimensions: ledgerCoverage.vectorDimensions,
-          }
-        : null;
+  const canonTarget = vectorTargetOf(coverage);
+  const ledgerTarget = vectorTargetOf(ledgerCoverage);
+  const sameVectorTarget =
+    canonTarget !== null &&
+    ledgerTarget !== null &&
+    canonTarget.model === ledgerTarget.model &&
+    canonTarget.dimensions === ledgerTarget.dimensions;
 
   const forcedLexical = input.mode === 'lexical';
-  const queryEmbeddingPromise: Promise<QueryEmbedding> = forcedLexical
-    ? Promise.resolve({
-        vector: null,
-        reason: '诊断模式：已强制词法检索，未调用嵌入服务',
-      })
-    : embedSearchQuery(input, vectorTarget);
+  const lexicalReason: QueryEmbedding = {
+    vector: null,
+    reason: '诊断模式：已强制词法检索，未调用嵌入服务',
+  };
 
-  const [lexicalRows, ledgerLexicalRows, queryEmbedding] = await Promise.all([
+  let canonQuery: Promise<QueryEmbedding>;
+  let ledgerQuery: Promise<QueryEmbedding>;
+  if (forcedLexical) {
+    canonQuery = Promise.resolve(lexicalReason);
+    ledgerQuery = canonQuery;
+  } else if (sameVectorTarget) {
+    canonQuery = embedSearchQuery(input, canonTarget);
+    ledgerQuery = canonQuery;
+  } else {
+    canonQuery = embedSearchQuery(input, canonTarget);
+    ledgerQuery = embedSearchQuery(input, ledgerTarget);
+  }
+
+  const [lexicalRows, ledgerLexicalRows, canonEmbedding, ledgerEmbedding] = await Promise.all([
     runLexicalSearch(input, tokens),
     runLedgerLexicalSearch(input, tokens),
-    queryEmbeddingPromise,
+    canonQuery,
+    ledgerQuery,
   ]);
 
-  const [vectorRows, ledgerVectorRows] = queryEmbedding.vector
-    ? await Promise.all([
-        runVectorSearch(input, coverage, queryEmbedding.vector),
-        vectorTarget
-          ? runLedgerVectorSearch(input, vectorTarget, queryEmbedding.vector)
-          : Promise.resolve([]),
-      ])
-    : [[], []];
+  const [vectorRows, ledgerVectorRows] = await Promise.all([
+    canonTarget && canonEmbedding.vector
+      ? runVectorSearch(input, coverage, canonEmbedding.vector)
+      : Promise.resolve([]),
+    ledgerTarget && ledgerEmbedding.vector
+      ? runLedgerVectorSearch(input, ledgerTarget, ledgerEmbedding.vector)
+      : Promise.resolve([]),
+  ]);
   const minVectorScore = env.searchVectorMinScore;
   const topVectorScore =
     vectorRows.length === 0 && ledgerVectorRows.length === 0
@@ -814,7 +833,7 @@ export async function searchCanon(input: SearchCanonInput): Promise<CanonSearchO
   const mode = usedVector ? 'hybrid' : 'lexical';
   const semanticReason = usedVector
     ? null
-    : (queryEmbedding.reason ??
+    : (canonEmbedding.reason ??
       (topVectorScore === null
         ? '当前检索范围内没有可用的向量片段，本次仅用词法检索'
         : `向量最高相似度 ${topVectorScore.toFixed(3)} 低于阈值 ${minVectorScore.toFixed(3)}，本次仅用词法检索`));
@@ -837,6 +856,16 @@ export async function searchCanon(input: SearchCanonInput): Promise<CanonSearchO
     vectorChunks: ledgerCoverage.vectorChunks,
     vectorModel: ledgerCoverage.vectorModel,
   };
+  const ledgerEmbeddingFailure =
+    !forcedLexical && ledgerTarget !== null && ledgerEmbedding.reason !== null
+      ? `账本向量通道未执行：${ledgerEmbedding.reason}`
+      : null;
+  const ledgerThresholdDrop =
+    ledgerTarget !== null &&
+    ledgerVectorRows.length > 0 &&
+    acceptedLedgerVectorRows.length === 0
+      ? `账本向量最高相似度低于阈值 ${minVectorScore.toFixed(3)}，本次账本仅用词法检索`
+      : null;
   const ledgerReason =
     ledgerCoverage.activeEntries === 0
       ? '当前范围没有已发布的设定、角色或伏笔条目'
@@ -844,7 +873,7 @@ export async function searchCanon(input: SearchCanonInput): Promise<CanonSearchO
         ? '账本条目尚未建立索引；请查看账本索引状态，必要时配置嵌入服务并重建索引'
         : ledgerCoverage.chunks > ledgerCoverage.vectorChunks
           ? '部分账本条目只有词法索引，没有可用的向量索引（未配置嵌入服务或尚未完成索引）；这些条目仅支持词法检索'
-          : null;
+          : (ledgerEmbeddingFailure ?? ledgerThresholdDrop);
 
   return {
     response: {

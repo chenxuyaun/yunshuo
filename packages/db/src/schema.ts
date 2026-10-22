@@ -565,6 +565,18 @@ export const ledgerEntries = pgTable('ledger_entries', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const ledgerEntryAliases = pgTable(
+  'ledger_entry_aliases',
+  {
+    entryId: uuid('entry_id').notNull(),
+    workspaceId: uuid('workspace_id').notNull(),
+    kind: text('kind').notNull(),
+    workId: uuid('work_id'),
+    aliasKey: text('alias_key').notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.entryId, table.aliasKey] })],
+);
+
 export const ledgerEntryVersions = pgTable('ledger_entry_versions', {
   id: uuid('id').primaryKey(),
   entryId: uuid('entry_id').notNull(),

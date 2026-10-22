@@ -346,6 +346,7 @@ suite('M6-3 伏笔台账：回收状态、逾期报告与写作台提醒', () =>
   afterAll(async () => {
     for (const workspaceId of [workspace, outsiderWorkspace].filter(Boolean)) {
       await sql`DELETE FROM ledger_entry_versions WHERE workspace_id = ${workspaceId}`;
+      await sql`DELETE FROM outbox WHERE payload->>'workspaceId' = ${workspaceId}`;
       await sql`DELETE FROM ledger_entries WHERE workspace_id = ${workspaceId}`;
       await sql`DELETE FROM audit_log WHERE workspace_id = ${workspaceId}`;
       await sql`DELETE FROM events WHERE workspace_id = ${workspaceId}`;

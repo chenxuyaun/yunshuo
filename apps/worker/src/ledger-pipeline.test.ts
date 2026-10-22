@@ -48,17 +48,20 @@ suite('worker 账本索引管线', () => {
     content?: string;
     scope?: 'work' | 'workspace';
     sourceChapterId?: string | null;
+    aliases?: string[];
   }): Promise<LedgerFixture> {
     const entryId = randomUUID();
     const versionId = randomUUID();
     const versionNo = params.versionNo ?? 1;
     const status = params.status ?? 'active';
+    // 别名唯一性由数据库兜底，同一作品范围内每条测试条目必须使用不同别名。
+    const aliases = params.aliases ?? [`${params.name}别名`];
     const content =
       params.content ??
       '王城坐落于河谷北岸，城门由银纹铜钉加固。守夜人只在月缺时更换门钉，旧钉会被投入护城河。';
     const snapshot = {
       name: params.name,
-      aliases: ['旧钉'],
+      aliases,
       summary: 'worker 账本索引测试条目',
       sourceChapterId: params.sourceChapterId ?? null,
       payload:
@@ -100,7 +103,7 @@ suite('worker 账本索引管线', () => {
       VALUES (
         ${entryId}, ${workspaceId}, ${params.scope === 'workspace' ? null : workId},
         ${params.kind}, ${params.scope ?? 'work'},
-        ${params.name}, ${sql.array(['旧钉'])}, ${snapshot.summary}, ${status}, ${userId}
+        ${params.name}, ${sql.array(aliases)}, ${snapshot.summary}, ${status}, ${userId}
       )
     `;
     await sql`

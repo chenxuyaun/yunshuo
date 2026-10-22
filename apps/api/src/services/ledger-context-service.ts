@@ -357,6 +357,7 @@ export async function loadAiLedgerContext(input: {
         versionId: row.current_version_id,
         versionNo: row.version_no,
         chars: clipped.text.length,
+        truncated: clipped.truncated,
       });
       if (kind === 'character') usedCharacters.push(row.name);
     }
