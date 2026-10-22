@@ -15,7 +15,9 @@ const CHAPTERS = Number(process.env.PERF_INDEX_CHAPTERS ?? '1000');
 const CHARS_PER_CHAPTER = Number(process.env.PERF_INDEX_CHAPTER_CHARS ?? '600');
 const BATCH = Number(process.env.PERF_INDEX_BATCH ?? '1000');
 const POLL_MS = Number(process.env.PERF_INDEX_POLL_MS ?? '20000');
-const TIMEOUT_MS = Number(process.env.PERF_INDEX_TIMEOUT_MS ?? '1_800_000'.replace(/_/g, ''));
+// 默认 90 分钟：千章在本机模型上实测排空 2070s（34.5 分钟），旧的 30 分钟默认值会把
+// 一次慢但成功的排空记成"未排空"，那是超时设置而不是管线状态。
+const TIMEOUT_MS = Number(process.env.PERF_INDEX_TIMEOUT_MS ?? '5_400_000'.replace(/_/g, ''));
 const EMBED_BASE_URL = process.env.PERF_EMBED_BASE_URL ?? 'http://127.0.0.1:11434/v1';
 const EMBED_MODEL = process.env.PERF_EMBED_MODEL ?? 'bge-m3:latest';
 const RUN_LABEL = process.env.PERF_REPORT_NAME ?? 'index';
@@ -86,6 +88,8 @@ const COUNTS = `
   UNION ALL SELECT 'canon_versions='||count(*) FROM canon_versions
   UNION ALL SELECT 'canon_current='||count(*) FROM canon_current
   UNION ALL SELECT 'canon_chunks='||count(*) FROM canon_chunks
+  -- chapter_metadata 每章一行，删除靠 works→chapters 的级联；不列进基线就看不见漏删。
+  UNION ALL SELECT 'chapter_metadata='||count(*) FROM chapter_metadata
   UNION ALL SELECT 'chunk_embeddings='||count(*) FROM chunk_embeddings
   UNION ALL SELECT 'index_status='||count(*) FROM index_status
   UNION ALL SELECT 'ledger_chunks='||count(*) FROM ledger_chunks

@@ -1,0 +1,979 @@
+{
+  "generatedAt": "2026-10-22T17:09:39.787Z",
+  "base": "http://127.0.0.1:3101",
+  "database": "yunshuo_test",
+  "runId": "1470da4f",
+  "runLabel": "index",
+  "scenario": "千章规模索引与检索：导入 1000 章 × 600 字，真实 worker 排空 outbox，再用本机嵌入服务做词法与混合检索",
+  "workTitle": "索引压测作品 1470da4f",
+  "cleanupWindowStart": "2026-10-22 16:34:52.313022+00",
+  "config": {
+    "chapterTarget": 1000,
+    "charsPerChapter": 600,
+    "importBatchSize": 1000,
+    "pollMs": 30000,
+    "timeoutMs": 5400000,
+    "embedBaseUrl": "http://127.0.0.1:11434/v1",
+    "embedModel": "bge-m3:latest",
+    "repeatsPerQuery": 3,
+    "automationRunner": "关闭（AUTOMATION_RUNNER=0，独立实例指向 yunshuo_test）"
+  },
+  "caveats": [
+    "合成正文：同一组 8 句 filler 循环拼接，切块边界与真实小说不同，检索命中也不具备语义难度。",
+    "单台机器上的单个 worker，POLL_MS 之间的采样是瞬时值而不是持续吞吐。",
+    "嵌入服务为本机模型，输入价填 0，成本数字不代表任何付费服务商。",
+    "本轮没有并发读写混合，也没有 Studio 容器内测量。"
+  ],
+  "baselineCounts": {
+    "works": 1,
+    "chapters": 2,
+    "canon_versions": 1,
+    "canon_current": 1,
+    "canon_chunks": 0,
+    "chunk_embeddings": 0,
+    "index_status": 1,
+    "ledger_chunks": 0,
+    "ledger_index_status": 0,
+    "outbox": 0,
+    "model_calls": 0,
+    "providers": 0,
+    "sessions": 0,
+    "events": 3,
+    "audit": 119
+  },
+  "embedServiceProbe": {
+    "reachable": true,
+    "modelSeenInList": true
+  },
+  "import": {
+    "batches": [
+      {
+        "chapterCount": 1000,
+        "importMs": 4253,
+        "requestBodyBytes": 1811900,
+        "storedWordCount": 550000
+      }
+    ],
+    "totalChapters": 1000,
+    "totalImportMs": 4253
+  },
+  "queueStart": {
+    "at": "2026-10-22T16:34:56.606Z",
+    "indexStatus": "pending=1000",
+    "outbox": "pending=1000"
+  },
+  "drain": {
+    "fullyDrained": true,
+    "timedOut": false,
+    "elapsedMs": 2070421,
+    "chaptersPerMinute": 29,
+    "samples": [
+      {
+        "elapsedMs": 0,
+        "elapsedSec": 0,
+        "indexStatus": "indexing=1,pending=999",
+        "outbox": "processing=1000",
+        "canonChunks": 0,
+        "chunkEmbeddings": 0,
+        "workerRssMb": 78.1,
+        "apiRssMb": 149.5
+      },
+      {
+        "elapsedMs": 32269,
+        "elapsedSec": 32,
+        "indexStatus": "indexing=1,pending=983,ready=16",
+        "outbox": "processed=16,processing=984",
+        "canonChunks": 32,
+        "chunkEmbeddings": 32,
+        "workerRssMb": 81.1,
+        "apiRssMb": 149.5
+      },
+      {
+        "elapsedMs": 64597,
+        "elapsedSec": 65,
+        "indexStatus": "indexing=1,pending=968,ready=31",
+        "outbox": "processed=31,processing=969",
+        "canonChunks": 64,
+        "chunkEmbeddings": 64,
+        "workerRssMb": 81.8,
+        "apiRssMb": 149.5
+      },
+      {
+        "elapsedMs": 97302,
+        "elapsedSec": 97,
+        "indexStatus": "indexing=1,pending=952,ready=47",
+        "outbox": "processed=47,processing=953",
+        "canonChunks": 94,
+        "chunkEmbeddings": 94,
+        "workerRssMb": 83.6,
+        "apiRssMb": 149.5
+      },
+      {
+        "elapsedMs": 129561,
+        "elapsedSec": 130,
+        "indexStatus": "indexing=1,pending=937,ready=62",
+        "outbox": "processed=62,processing=938",
+        "canonChunks": 124,
+        "chunkEmbeddings": 126,
+        "workerRssMb": 86.1,
+        "apiRssMb": 98.3
+      },
+      {
+        "elapsedMs": 161997,
+        "elapsedSec": 162,
+        "indexStatus": "indexing=1,pending=921,ready=78",
+        "outbox": "processed=78,processing=922",
+        "canonChunks": 156,
+        "chunkEmbeddings": 156,
+        "workerRssMb": 86.9,
+        "apiRssMb": 98.3
+      },
+      {
+        "elapsedMs": 194429,
+        "elapsedSec": 194,
+        "indexStatus": "indexing=1,pending=906,ready=93",
+        "outbox": "processed=94,processing=906",
+        "canonChunks": 188,
+        "chunkEmbeddings": 188,
+        "workerRssMb": 86.9,
+        "apiRssMb": 98.3
+      },
+      {
+        "elapsedMs": 226912,
+        "elapsedSec": 227,
+        "indexStatus": "indexing=1,pending=889,ready=110",
+        "outbox": "processed=110,processing=890",
+        "canonChunks": 220,
+        "chunkEmbeddings": 220,
+        "workerRssMb": 86.7,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 259336,
+        "elapsedSec": 259,
+        "indexStatus": "indexing=1,pending=874,ready=125",
+        "outbox": "processed=126,processing=874",
+        "canonChunks": 252,
+        "chunkEmbeddings": 252,
+        "workerRssMb": 87,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 291655,
+        "elapsedSec": 292,
+        "indexStatus": "indexing=1,pending=857,ready=142",
+        "outbox": "processed=142,processing=858",
+        "canonChunks": 284,
+        "chunkEmbeddings": 284,
+        "workerRssMb": 87,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 323853,
+        "elapsedSec": 324,
+        "indexStatus": "indexing=1,pending=841,ready=158",
+        "outbox": "processed=158,processing=842",
+        "canonChunks": 316,
+        "chunkEmbeddings": 316,
+        "workerRssMb": 87.8,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 356169,
+        "elapsedSec": 356,
+        "indexStatus": "indexing=1,pending=825,ready=174",
+        "outbox": "processed=174,processing=826",
+        "canonChunks": 348,
+        "chunkEmbeddings": 348,
+        "workerRssMb": 87.8,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 388396,
+        "elapsedSec": 388,
+        "indexStatus": "indexing=1,pending=809,ready=190",
+        "outbox": "processed=190,processing=810",
+        "canonChunks": 380,
+        "chunkEmbeddings": 380,
+        "workerRssMb": 88.1,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 420653,
+        "elapsedSec": 421,
+        "indexStatus": "indexing=1,pending=793,ready=206",
+        "outbox": "processed=206,processing=794",
+        "canonChunks": 412,
+        "chunkEmbeddings": 412,
+        "workerRssMb": 88.5,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 452982,
+        "elapsedSec": 453,
+        "indexStatus": "indexing=1,pending=777,ready=222",
+        "outbox": "processed=223,processing=777",
+        "canonChunks": 446,
+        "chunkEmbeddings": 446,
+        "workerRssMb": 88.5,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 485463,
+        "elapsedSec": 485,
+        "indexStatus": "indexing=1,pending=761,ready=238",
+        "outbox": "processed=238,processing=762",
+        "canonChunks": 478,
+        "chunkEmbeddings": 478,
+        "workerRssMb": 88.5,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 517738,
+        "elapsedSec": 518,
+        "indexStatus": "indexing=1,pending=744,ready=255",
+        "outbox": "processed=255,processing=745",
+        "canonChunks": 510,
+        "chunkEmbeddings": 510,
+        "workerRssMb": 88.1,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 550051,
+        "elapsedSec": 550,
+        "indexStatus": "indexing=1,pending=729,ready=270",
+        "outbox": "processed=271,processing=729",
+        "canonChunks": 542,
+        "chunkEmbeddings": 542,
+        "workerRssMb": 88.6,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 582431,
+        "elapsedSec": 582,
+        "indexStatus": "indexing=1,pending=712,ready=287",
+        "outbox": "processed=287,processing=713",
+        "canonChunks": 574,
+        "chunkEmbeddings": 574,
+        "workerRssMb": 88.7,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 614732,
+        "elapsedSec": 615,
+        "indexStatus": "indexing=1,pending=696,ready=303",
+        "outbox": "processed=303,processing=697",
+        "canonChunks": 606,
+        "chunkEmbeddings": 606,
+        "workerRssMb": 88.5,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 647038,
+        "elapsedSec": 647,
+        "indexStatus": "indexing=1,pending=680,ready=319",
+        "outbox": "processed=319,processing=681",
+        "canonChunks": 638,
+        "chunkEmbeddings": 638,
+        "workerRssMb": 88.5,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 679247,
+        "elapsedSec": 679,
+        "indexStatus": "indexing=1,pending=664,ready=335",
+        "outbox": "processed=335,processing=665",
+        "canonChunks": 670,
+        "chunkEmbeddings": 670,
+        "workerRssMb": 88.6,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 711429,
+        "elapsedSec": 711,
+        "indexStatus": "indexing=1,pending=648,ready=351",
+        "outbox": "processed=351,processing=649",
+        "canonChunks": 702,
+        "chunkEmbeddings": 702,
+        "workerRssMb": 88.3,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 743795,
+        "elapsedSec": 744,
+        "indexStatus": "indexing=1,pending=632,ready=367",
+        "outbox": "processed=367,processing=633",
+        "canonChunks": 734,
+        "chunkEmbeddings": 734,
+        "workerRssMb": 88.5,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 776051,
+        "elapsedSec": 776,
+        "indexStatus": "indexing=1,pending=616,ready=383",
+        "outbox": "processed=383,processing=617",
+        "canonChunks": 766,
+        "chunkEmbeddings": 766,
+        "workerRssMb": 88.7,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 808445,
+        "elapsedSec": 808,
+        "indexStatus": "indexing=1,pending=600,ready=399",
+        "outbox": "processed=399,processing=601",
+        "canonChunks": 798,
+        "chunkEmbeddings": 798,
+        "workerRssMb": 88.8,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 840786,
+        "elapsedSec": 841,
+        "indexStatus": "indexing=1,pending=584,ready=415",
+        "outbox": "processed=415,processing=585",
+        "canonChunks": 830,
+        "chunkEmbeddings": 830,
+        "workerRssMb": 88.8,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 873200,
+        "elapsedSec": 873,
+        "indexStatus": "indexing=1,pending=568,ready=431",
+        "outbox": "processed=431,processing=569",
+        "canonChunks": 862,
+        "chunkEmbeddings": 862,
+        "workerRssMb": 89.2,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 905592,
+        "elapsedSec": 906,
+        "indexStatus": "indexing=1,pending=552,ready=447",
+        "outbox": "processed=447,processing=553",
+        "canonChunks": 894,
+        "chunkEmbeddings": 894,
+        "workerRssMb": 88.7,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 937826,
+        "elapsedSec": 938,
+        "indexStatus": "indexing=1,pending=536,ready=463",
+        "outbox": "processed=463,processing=537",
+        "canonChunks": 926,
+        "chunkEmbeddings": 926,
+        "workerRssMb": 88.8,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 970380,
+        "elapsedSec": 970,
+        "indexStatus": "indexing=1,pending=520,ready=479",
+        "outbox": "processed=479,processing=521",
+        "canonChunks": 958,
+        "chunkEmbeddings": 958,
+        "workerRssMb": 89,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 1002661,
+        "elapsedSec": 1003,
+        "indexStatus": "indexing=1,pending=504,ready=495",
+        "outbox": "processed=495,processing=505",
+        "canonChunks": 990,
+        "chunkEmbeddings": 990,
+        "workerRssMb": 89.1,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 1034998,
+        "elapsedSec": 1035,
+        "indexStatus": "indexing=1,pending=488,ready=511",
+        "outbox": "processed=511,processing=489",
+        "canonChunks": 1022,
+        "chunkEmbeddings": 1022,
+        "workerRssMb": 88.6,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 1067438,
+        "elapsedSec": 1067,
+        "indexStatus": "indexing=1,pending=473,ready=526",
+        "outbox": "processed=527,processing=473",
+        "canonChunks": 1054,
+        "chunkEmbeddings": 1054,
+        "workerRssMb": 89,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 1099918,
+        "elapsedSec": 1100,
+        "indexStatus": "indexing=1,pending=457,ready=542",
+        "outbox": "processed=542,processing=458",
+        "canonChunks": 1084,
+        "chunkEmbeddings": 1084,
+        "workerRssMb": 89.1,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 1132262,
+        "elapsedSec": 1132,
+        "indexStatus": "indexing=1,pending=442,ready=557",
+        "outbox": "processed=557,processing=443",
+        "canonChunks": 1114,
+        "chunkEmbeddings": 1114,
+        "workerRssMb": 88.8,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 1164771,
+        "elapsedSec": 1165,
+        "indexStatus": "indexing=1,pending=427,ready=572",
+        "outbox": "processed=572,processing=428",
+        "canonChunks": 1146,
+        "chunkEmbeddings": 1146,
+        "workerRssMb": 89.3,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 1197138,
+        "elapsedSec": 1197,
+        "indexStatus": "indexing=1,pending=411,ready=588",
+        "outbox": "processed=588,processing=412",
+        "canonChunks": 1176,
+        "chunkEmbeddings": 1176,
+        "workerRssMb": 88.9,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 1229531,
+        "elapsedSec": 1230,
+        "indexStatus": "indexing=1,pending=396,ready=603",
+        "outbox": "processed=603,processing=397",
+        "canonChunks": 1206,
+        "chunkEmbeddings": 1206,
+        "workerRssMb": 89.1,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 1261916,
+        "elapsedSec": 1262,
+        "indexStatus": "indexing=1,pending=381,ready=618",
+        "outbox": "processed=618,processing=382",
+        "canonChunks": 1236,
+        "chunkEmbeddings": 1236,
+        "workerRssMb": 89.3,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 1294337,
+        "elapsedSec": 1294,
+        "indexStatus": "indexing=1,pending=366,ready=633",
+        "outbox": "processed=634,processing=366",
+        "canonChunks": 1268,
+        "chunkEmbeddings": 1268,
+        "workerRssMb": 89.3,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 1326895,
+        "elapsedSec": 1327,
+        "indexStatus": "indexing=1,pending=350,ready=649",
+        "outbox": "processed=649,processing=351",
+        "canonChunks": 1298,
+        "chunkEmbeddings": 1298,
+        "workerRssMb": 89.1,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 1359386,
+        "elapsedSec": 1359,
+        "indexStatus": "indexing=1,pending=335,ready=664",
+        "outbox": "processed=664,processing=336",
+        "canonChunks": 1328,
+        "chunkEmbeddings": 1328,
+        "workerRssMb": 89.2,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 1391879,
+        "elapsedSec": 1392,
+        "indexStatus": "indexing=1,pending=320,ready=679",
+        "outbox": "processed=679,processing=321",
+        "canonChunks": 1358,
+        "chunkEmbeddings": 1360,
+        "workerRssMb": 89.2,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 1424271,
+        "elapsedSec": 1424,
+        "indexStatus": "indexing=1,pending=305,ready=694",
+        "outbox": "processed=695,processing=305",
+        "canonChunks": 1390,
+        "chunkEmbeddings": 1390,
+        "workerRssMb": 89.3,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 1456716,
+        "elapsedSec": 1457,
+        "indexStatus": "indexing=1,pending=289,ready=710",
+        "outbox": "processed=710,processing=290",
+        "canonChunks": 1420,
+        "chunkEmbeddings": 1420,
+        "workerRssMb": 89.3,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 1488995,
+        "elapsedSec": 1489,
+        "indexStatus": "indexing=1,pending=274,ready=725",
+        "outbox": "processed=725,processing=275",
+        "canonChunks": 1450,
+        "chunkEmbeddings": 1450,
+        "workerRssMb": 89.2,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 1521354,
+        "elapsedSec": 1521,
+        "indexStatus": "indexing=1,pending=259,ready=740",
+        "outbox": "processed=741,processing=259",
+        "canonChunks": 1482,
+        "chunkEmbeddings": 1482,
+        "workerRssMb": 89.1,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 1553858,
+        "elapsedSec": 1554,
+        "indexStatus": "indexing=1,pending=243,ready=756",
+        "outbox": "processed=756,processing=244",
+        "canonChunks": 1512,
+        "chunkEmbeddings": 1512,
+        "workerRssMb": 89.4,
+        "apiRssMb": 96.3
+      },
+      {
+        "elapsedMs": 1586236,
+        "elapsedSec": 1586,
+        "indexStatus": "indexing=1,pending=227,ready=772",
+        "outbox": "processed=773,processing=227",
+        "canonChunks": 1546,
+        "chunkEmbeddings": 1546,
+        "workerRssMb": 89.5,
+        "apiRssMb": 96.4
+      },
+      {
+        "elapsedMs": 1618605,
+        "elapsedSec": 1619,
+        "indexStatus": "indexing=1,pending=210,ready=789",
+        "outbox": "processed=789,processing=211",
+        "canonChunks": 1578,
+        "chunkEmbeddings": 1578,
+        "workerRssMb": 89.3,
+        "apiRssMb": 96.4
+      },
+      {
+        "elapsedMs": 1650945,
+        "elapsedSec": 1651,
+        "indexStatus": "indexing=1,pending=194,ready=805",
+        "outbox": "processed=805,processing=195",
+        "canonChunks": 1610,
+        "chunkEmbeddings": 1610,
+        "workerRssMb": 89.4,
+        "apiRssMb": 96.4
+      },
+      {
+        "elapsedMs": 1683237,
+        "elapsedSec": 1683,
+        "indexStatus": "indexing=1,pending=178,ready=821",
+        "outbox": "processed=821,processing=179",
+        "canonChunks": 1642,
+        "chunkEmbeddings": 1642,
+        "workerRssMb": 89.4,
+        "apiRssMb": 96.4
+      },
+      {
+        "elapsedMs": 1715501,
+        "elapsedSec": 1716,
+        "indexStatus": "indexing=1,pending=162,ready=837",
+        "outbox": "processed=837,processing=163",
+        "canonChunks": 1674,
+        "chunkEmbeddings": 1674,
+        "workerRssMb": 89.3,
+        "apiRssMb": 96.4
+      },
+      {
+        "elapsedMs": 1747782,
+        "elapsedSec": 1748,
+        "indexStatus": "indexing=1,pending=146,ready=853",
+        "outbox": "processed=853,processing=147",
+        "canonChunks": 1706,
+        "chunkEmbeddings": 1706,
+        "workerRssMb": 89.3,
+        "apiRssMb": 96.4
+      },
+      {
+        "elapsedMs": 1780030,
+        "elapsedSec": 1780,
+        "indexStatus": "indexing=1,pending=130,ready=869",
+        "outbox": "processed=869,processing=131",
+        "canonChunks": 1738,
+        "chunkEmbeddings": 1738,
+        "workerRssMb": 89.3,
+        "apiRssMb": 96.4
+      },
+      {
+        "elapsedMs": 1812318,
+        "elapsedSec": 1812,
+        "indexStatus": "indexing=1,pending=114,ready=885",
+        "outbox": "processed=885,processing=115",
+        "canonChunks": 1770,
+        "chunkEmbeddings": 1770,
+        "workerRssMb": 89.4,
+        "apiRssMb": 96.8
+      },
+      {
+        "elapsedMs": 1844480,
+        "elapsedSec": 1844,
+        "indexStatus": "indexing=1,pending=98,ready=901",
+        "outbox": "processed=901,processing=99",
+        "canonChunks": 1802,
+        "chunkEmbeddings": 1802,
+        "workerRssMb": 89.4,
+        "apiRssMb": 96.8
+      },
+      {
+        "elapsedMs": 1876747,
+        "elapsedSec": 1877,
+        "indexStatus": "indexing=1,pending=83,ready=916",
+        "outbox": "processed=917,processing=83",
+        "canonChunks": 1834,
+        "chunkEmbeddings": 1834,
+        "workerRssMb": 89.9,
+        "apiRssMb": 96.8
+      },
+      {
+        "elapsedMs": 1909012,
+        "elapsedSec": 1909,
+        "indexStatus": "indexing=1,pending=67,ready=932",
+        "outbox": "processed=932,processing=68",
+        "canonChunks": 1866,
+        "chunkEmbeddings": 1866,
+        "workerRssMb": 89.2,
+        "apiRssMb": 96.8
+      },
+      {
+        "elapsedMs": 1941413,
+        "elapsedSec": 1941,
+        "indexStatus": "indexing=1,pending=51,ready=948",
+        "outbox": "processed=948,processing=52",
+        "canonChunks": 1896,
+        "chunkEmbeddings": 1896,
+        "workerRssMb": 89.4,
+        "apiRssMb": 96.8
+      },
+      {
+        "elapsedMs": 1973510,
+        "elapsedSec": 1974,
+        "indexStatus": "indexing=1,pending=35,ready=964",
+        "outbox": "processed=964,processing=36",
+        "canonChunks": 1928,
+        "chunkEmbeddings": 1928,
+        "workerRssMb": 89.3,
+        "apiRssMb": 96.8
+      },
+      {
+        "elapsedMs": 2005767,
+        "elapsedSec": 2006,
+        "indexStatus": "indexing=1,pending=19,ready=980",
+        "outbox": "processed=980,processing=20",
+        "canonChunks": 1962,
+        "chunkEmbeddings": 1962,
+        "workerRssMb": 89.3,
+        "apiRssMb": 96.8
+      },
+      {
+        "elapsedMs": 2038154,
+        "elapsedSec": 2038,
+        "indexStatus": "indexing=1,pending=2,ready=997",
+        "outbox": "processed=997,processing=3",
+        "canonChunks": 1994,
+        "chunkEmbeddings": 1994,
+        "workerRssMb": 89.4,
+        "apiRssMb": 96.8
+      },
+      {
+        "elapsedMs": 2070421,
+        "elapsedSec": 2070,
+        "indexStatus": "ready=1000",
+        "outbox": "processed=1000",
+        "canonChunks": 2000,
+        "chunkEmbeddings": 2000,
+        "workerRssMb": 89.5,
+        "apiRssMb": 96.8
+      }
+    ]
+  },
+  "indexDetail": "压测嵌入 index/bge-m3:latest dim=1024 chunks=2 | 压测嵌入 index/bge-m3:latest dim=1024 chunks=2 | 压测嵌入 index/bge-m3:latest dim=1024 chunks=2",
+  "chunkStats": "chunks_per_chapter_avg=2.00 max=2 min=2",
+  "embeddingCoverage": "vector_chunks=2000 of canon_chunks=2000",
+  "calls": {
+    "indexPhase": "n=1000 ok=1000 failed=0 blocked=0 prompt_tokens=578143 cost=0.0000 CNY latency_med=2021",
+    "queryPhase": "n=12 ok=12 failed=0 blocked=0 prompt_tokens=141 cost=0.0000 CNY latency_med=190",
+    "queryPhaseAtDrainEnd": "n=0 ok=0 failed=0 blocked=0 prompt_tokens=0 cost=0 - latency_med=null",
+    "providerTotal": "n=1012",
+    "note": "indexPhase 在检索开始前取样，queryPhase 含每次混合检索的查询向量调用；两者按 purpose 分开记账。"
+  },
+  "retrieval": [
+    {
+      "mode": "lexical",
+      "label": "原文片段",
+      "queryChars": 11,
+      "medianMs": 413,
+      "samples": [
+        652,
+        400,
+        413
+      ],
+      "results": 8,
+      "topChapterNumber": 1,
+      "topLexicalScore": 3,
+      "topVectorScore": null,
+      "topRrfScore": 0.016393,
+      "modeUsed": "lexical",
+      "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+      "coverage": {
+        "totalCanonChapters": 1000,
+        "ready": 1000,
+        "chunks": 2000,
+        "vectorChunks": 2000,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 4541
+    },
+    {
+      "mode": "lexical",
+      "label": "关键词",
+      "queryChars": 8,
+      "medianMs": 389,
+      "samples": [
+        385,
+        405,
+        389
+      ],
+      "results": 8,
+      "topChapterNumber": 1,
+      "topLexicalScore": 0.9,
+      "topVectorScore": null,
+      "topRrfScore": 0.016393,
+      "modeUsed": "lexical",
+      "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+      "coverage": {
+        "totalCanonChapters": 1000,
+        "ready": 1000,
+        "chunks": 2000,
+        "vectorChunks": 2000,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 4557
+    },
+    {
+      "mode": "lexical",
+      "label": "近似改写",
+      "queryChars": 11,
+      "medianMs": 413,
+      "samples": [
+        413,
+        408,
+        417
+      ],
+      "results": 8,
+      "topChapterNumber": 1,
+      "topLexicalScore": 2.7,
+      "topVectorScore": null,
+      "topRrfScore": 0.016393,
+      "modeUsed": "lexical",
+      "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+      "coverage": {
+        "totalCanonChapters": 1000,
+        "ready": 1000,
+        "chunks": 2000,
+        "vectorChunks": 2000,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 4558
+    },
+    {
+      "mode": "lexical",
+      "label": "域外对照",
+      "queryChars": 11,
+      "medianMs": 209,
+      "samples": [
+        209,
+        216,
+        204
+      ],
+      "results": 0,
+      "topChapterNumber": null,
+      "topLexicalScore": null,
+      "topVectorScore": null,
+      "topRrfScore": null,
+      "modeUsed": "lexical",
+      "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+      "coverage": {
+        "totalCanonChapters": 1000,
+        "ready": 1000,
+        "chunks": 2000,
+        "vectorChunks": 2000,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 433
+    },
+    {
+      "mode": "auto",
+      "label": "原文片段",
+      "queryChars": 11,
+      "medianMs": 456,
+      "samples": [
+        727,
+        451,
+        456
+      ],
+      "results": 8,
+      "topChapterNumber": 1,
+      "topLexicalScore": 3,
+      "topVectorScore": null,
+      "topRrfScore": 0.016393,
+      "modeUsed": "hybrid",
+      "semanticReason": null,
+      "coverage": {
+        "totalCanonChapters": 1000,
+        "ready": 1000,
+        "chunks": 2000,
+        "vectorChunks": 2000,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 4563
+    },
+    {
+      "mode": "auto",
+      "label": "关键词",
+      "queryChars": 8,
+      "medianMs": 434,
+      "samples": [
+        434,
+        443,
+        428
+      ],
+      "results": 8,
+      "topChapterNumber": 6,
+      "topLexicalScore": 0.9,
+      "topVectorScore": 0.642013,
+      "topRrfScore": 0.027778,
+      "modeUsed": "hybrid",
+      "semanticReason": null,
+      "coverage": {
+        "totalCanonChapters": 1000,
+        "ready": 1000,
+        "chunks": 2000,
+        "vectorChunks": 2000,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 4570
+    },
+    {
+      "mode": "auto",
+      "label": "近似改写",
+      "queryChars": 11,
+      "medianMs": 465,
+      "samples": [
+        458,
+        476,
+        465
+      ],
+      "results": 8,
+      "topChapterNumber": 25,
+      "topLexicalScore": 2.7,
+      "topVectorScore": 0.645754,
+      "topRrfScore": 0.028191,
+      "modeUsed": "hybrid",
+      "semanticReason": null,
+      "coverage": {
+        "totalCanonChapters": 1000,
+        "ready": 1000,
+        "chunks": 2000,
+        "vectorChunks": 2000,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 4564
+    },
+    {
+      "mode": "auto",
+      "label": "域外对照",
+      "queryChars": 11,
+      "medianMs": 251,
+      "samples": [
+        255,
+        241,
+        251
+      ],
+      "results": 0,
+      "topChapterNumber": null,
+      "topLexicalScore": null,
+      "topVectorScore": null,
+      "topRrfScore": null,
+      "modeUsed": "lexical",
+      "semanticReason": "向量最高相似度 0.318 低于阈值 0.400，本次仅用词法检索",
+      "coverage": {
+        "totalCanonChapters": 1000,
+        "ready": 1000,
+        "chunks": 2000,
+        "vectorChunks": 2000,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 446
+    }
+  ],
+  "countsAfterRun": {
+    "works": 2,
+    "chapters": 1002,
+    "canon_versions": 1001,
+    "canon_current": 1001,
+    "canon_chunks": 2000,
+    "chunk_embeddings": 2000,
+    "index_status": 1001,
+    "ledger_chunks": 0,
+    "ledger_index_status": 0,
+    "outbox": 1000,
+    "model_calls": 1012,
+    "providers": 1,
+    "sessions": 1,
+    "events": 1003,
+    "audit": 1121
+  },
+  "cleanupNote": "临时服务商的 model_calls 共 1012 条（报告 calls.providerTotal = n=1012，两者应一致），与服务商行一并按 id 删除；真实用量与耗时已先写入本报告 calls。",
+  "countsAfterCleanup": {
+    "works": 1,
+    "chapters": 2,
+    "canon_versions": 1,
+    "canon_current": 1,
+    "canon_chunks": 0,
+    "chunk_embeddings": 0,
+    "index_status": 1,
+    "ledger_chunks": 0,
+    "ledger_index_status": 0,
+    "outbox": 0,
+    "model_calls": 0,
+    "providers": 0,
+    "sessions": 0,
+    "events": 3,
+    "audit": 119
+  },
+  "cleanupDrift": {}
+}
