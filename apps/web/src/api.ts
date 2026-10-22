@@ -40,6 +40,8 @@ import type {
   LedgerEntryVersionListResponse,
   LedgerCharacterContext,
   LedgerCharacterTimeline,
+  LedgerForeshadowingReminders,
+  LedgerForeshadowingReport,
   MemberView,
   MeResponse,
   ModelDiscoveryResponse,
@@ -781,6 +783,25 @@ export function getCharacterTimeline(entryId: string): Promise<LedgerCharacterTi
 export function getCharacterContext(chapterId: string): Promise<LedgerCharacterContext> {
   return request<LedgerCharacterContext>(
     `/api/ledger/character-context?chapterId=${encodeURIComponent(chapterId)}`,
+  );
+}
+
+export function getForeshadowingReport(
+  workId?: string,
+): Promise<LedgerForeshadowingReport> {
+  const search = new URLSearchParams();
+  if (workId) search.set('workId', workId);
+  const suffix = search.toString();
+  return request<LedgerForeshadowingReport>(
+    `/api/ledger/foreshadowing/report${suffix ? `?${suffix}` : ''}`,
+  );
+}
+
+export function getForeshadowingReminders(
+  chapterId: string,
+): Promise<LedgerForeshadowingReminders> {
+  return request<LedgerForeshadowingReminders>(
+    `/api/ledger/foreshadowing/reminders?chapterId=${encodeURIComponent(chapterId)}`,
   );
 }
 

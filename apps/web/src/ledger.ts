@@ -6,6 +6,9 @@ import type {
   LedgerEntrySnapshot,
   LedgerEntryStatus,
   LedgerEntryPayload,
+  LedgerForeshadowingImportance,
+  LedgerForeshadowingPayload,
+  LedgerForeshadowingState,
   LedgerSettingCategory,
   LedgerSettingPayload,
   LedgerVerificationState,
@@ -50,6 +53,32 @@ export const CHARACTER_LIFE_LABELS: Record<LedgerCharacterLifeState, string> = {
   unknown: '未知',
 };
 
+export const FORESHADOWING_STATE_LABELS: Record<LedgerForeshadowingState, string> = {
+  planted: '已埋设',
+  reinforced: '已强化',
+  paid_off: '已回收',
+  abandoned: '已放弃',
+};
+
+export const FORESHADOWING_IMPORTANCE_LABELS: Record<
+  LedgerForeshadowingImportance,
+  string
+> = {
+  low: '低',
+  medium: '中',
+  high: '高',
+};
+
+export const FORESHADOWING_TRANSITIONS: Record<
+  LedgerForeshadowingState,
+  readonly LedgerForeshadowingState[]
+> = {
+  planted: ['planted', 'reinforced', 'paid_off', 'abandoned'],
+  reinforced: ['reinforced', 'paid_off', 'abandoned'],
+  paid_off: ['paid_off'],
+  abandoned: ['abandoned'],
+};
+
 export function isSettingPayload(payload: LedgerEntryPayload): payload is LedgerSettingPayload {
   return 'category' in payload;
 }
@@ -58,6 +87,19 @@ export function isCharacterPayload(
   payload: LedgerEntryPayload,
 ): payload is LedgerCharacterPayload {
   return 'states' in payload && 'speechStyle' in payload;
+}
+
+export function isForeshadowingPayload(
+  payload: LedgerEntryPayload,
+): payload is LedgerForeshadowingPayload {
+  return 'seedChapterId' in payload;
+}
+
+export function payoffWindowLabel(min: number | null, max: number | null): string {
+  if (min !== null && max !== null) return `第 ${min}–${max} 章`;
+  if (min !== null) return `第 ${min} 章起`;
+  if (max !== null) return `第 ${max} 章前`;
+  return '未设置计划窗口';
 }
 
 export interface LedgerFieldDiff {
@@ -158,6 +200,54 @@ export function diffLedgerSnapshots(
         afterStates.get(chapterId) ?? '',
       );
     }
+    return rows;
+  }
+
+  if (isForeshadowingPayload(nextPayload)) {
+    const previousForeshadowing =
+      previousPayload && isForeshadowingPayload(previousPayload) ? previousPayload : null;
+    push(
+      '状态',
+      previousForeshadowing
+        ? FORESHADOWING_STATE_LABELS[previousForeshadowing.state]
+        : '',
+      FORESHADOWING_STATE_LABELS[nextPayload.state],
+    );
+    push(
+      '重要度',
+      previousForeshadowing
+        ? FORESHADOWING_IMPORTANCE_LABELS[previousForeshadowing.importance]
+        : '',
+      FORESHADOWING_IMPORTANCE_LABELS[nextPayload.importance],
+    );
+    push(
+      '埋设章节',
+      previousForeshadowing ? chapterLabel(previousForeshadowing.seedChapterId) : '',
+      chapterLabel(nextPayload.seedChapterId),
+    );
+    push(
+      '计划回收窗口',
+      previousForeshadowing
+        ? payoffWindowLabel(
+            previousForeshadowing.payoffChapterMin,
+            previousForeshadowing.payoffChapterMax,
+          )
+        : '',
+      payoffWindowLabel(nextPayload.payoffChapterMin, nextPayload.payoffChapterMax),
+    );
+    push(
+      '回收章节',
+      previousForeshadowing?.payoffChapterId
+        ? chapterLabel(previousForeshadowing.payoffChapterId)
+        : '',
+      nextPayload.payoffChapterId ? chapterLabel(nextPayload.payoffChapterId) : '',
+    );
+    push(
+      '回收或放弃说明',
+      previousForeshadowing?.resolutionNote,
+      nextPayload.resolutionNote,
+    );
+    push('伏笔说明', previousForeshadowing?.note, nextPayload.note);
     return rows;
   }
 

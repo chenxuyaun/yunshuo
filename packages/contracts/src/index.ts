@@ -1258,20 +1258,54 @@ export const ledgerForeshadowingPayloadSchema = z
     state: z.enum(LEDGER_FORESHADOWING_STATES).default('planted'),
     payoffChapterId: z.string().uuid().nullable().default(null),
     note: z.string().trim().max(10_000, '伏笔说明不能超过 10000 字').default(''),
+    resolutionNote: z
+      .string()
+      .trim()
+      .max(5000, '回收或放弃说明不能超过 5000 字')
+      .default(''),
   })
-  .refine(
-    (value) =>
-      value.payoffChapterMin === null ||
-      value.payoffChapterMax === null ||
-      value.payoffChapterMin <= value.payoffChapterMax,
-    {
-      message: '计划回收起始章不能大于结束章',
-      path: ['payoffChapterMin'],
-    },
-  )
-  .refine((value) => value.state !== 'paid_off' || Boolean(value.payoffChapterId), {
-    message: '已回收伏笔必须填写回收章节',
-    path: ['payoffChapterId'],
+  .superRefine((value, ctx) => {
+    if (
+      value.payoffChapterMin !== null &&
+      value.payoffChapterMax !== null &&
+      value.payoffChapterMin > value.payoffChapterMax
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        message: '计划回收起始章不能大于结束章',
+        path: ['payoffChapterMin'],
+      });
+    }
+    if (value.state === 'paid_off') {
+      if (!value.payoffChapterId) {
+        ctx.addIssue({
+          code: 'custom',
+          message: '已回收伏笔必须填写回收章节',
+          path: ['payoffChapterId'],
+        });
+      }
+      if (value.resolutionNote.length < 4) {
+        ctx.addIssue({
+          code: 'custom',
+          message: '已回收伏笔必须填写至少 4 个字的回收说明',
+          path: ['resolutionNote'],
+        });
+      }
+    }
+    if (value.state === 'abandoned' && value.resolutionNote.length < 4) {
+      ctx.addIssue({
+        code: 'custom',
+        message: '已放弃伏笔必须填写至少 4 个字的放弃原因',
+        path: ['resolutionNote'],
+      });
+    }
+    if (value.state !== 'paid_off' && value.payoffChapterId) {
+      ctx.addIssue({
+        code: 'custom',
+        message: '只有已回收的伏笔可以绑定回收章节',
+        path: ['payoffChapterId'],
+      });
+    }
   });
 
 export type LedgerSettingPayload = z.infer<typeof ledgerSettingPayloadSchema>;
@@ -1395,6 +1429,7 @@ export interface LedgerEntrySummary {
   sourceChapterId: string | null;
   currentVersionNo: number | null;
   draftVersionNo: number | null;
+  foreshadowing?: LedgerForeshadowingSummary | null;
   updatedAt: string;
 }
 
@@ -1418,6 +1453,65 @@ export interface LedgerChapterRef {
   id: string;
   number: number;
   title: string;
+}
+
+export interface LedgerForeshadowingSummary {
+  state: LedgerForeshadowingState;
+  importance: LedgerForeshadowingImportance;
+  seedChapter: LedgerChapterRef;
+  payoffChapterMin: number | null;
+  payoffChapterMax: number | null;
+  payoffChapter: LedgerChapterRef | null;
+  resolutionNote: string;
+  latestCanonChapter: LedgerChapterRef | null;
+  overdue: boolean;
+  overdueBy: number | null;
+  basis: 'current' | 'draft';
+}
+
+export interface LedgerForeshadowingReportItem extends LedgerForeshadowingSummary {
+  id: string;
+  workId: string;
+  name: string;
+  summary: string;
+  note: string;
+  versionNo: number;
+}
+
+export interface LedgerForeshadowingReportSummary {
+  total: number;
+  unresolved: number;
+  overdue: number;
+  paidOff: number;
+  abandoned: number;
+}
+
+export interface LedgerForeshadowingReport {
+  workId: string | null;
+  items: LedgerForeshadowingReportItem[];
+  summary: LedgerForeshadowingReportSummary;
+  note: string;
+}
+
+export type LedgerForeshadowingReminderReason = 'in_window' | 'overdue';
+
+export interface LedgerForeshadowingReminderItem extends LedgerForeshadowingSummary {
+  id: string;
+  workId: string;
+  name: string;
+  summary: string;
+  note: string;
+  versionNo: number;
+  reason: LedgerForeshadowingReminderReason;
+  message: string;
+}
+
+export interface LedgerForeshadowingReminders {
+  chapterId: string;
+  chapter: LedgerChapterRef;
+  latestCanonChapter: LedgerChapterRef | null;
+  reminders: LedgerForeshadowingReminderItem[];
+  note: string;
 }
 
 export interface LedgerCharacterStateEntry {

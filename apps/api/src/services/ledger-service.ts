@@ -24,6 +24,12 @@ import {
   type LedgerEntrySummary,
   type LedgerEntryVersionListResponse,
   type LedgerEntryVersionView,
+  type LedgerForeshadowingPayload,
+  type LedgerForeshadowingReminders,
+  type LedgerForeshadowingReport,
+  type LedgerForeshadowingReportItem,
+  type LedgerForeshadowingState,
+  type LedgerForeshadowingSummary,
   type ListLedgerEntriesQuery,
   type PublishLedgerEntryInput,
   type RollbackLedgerEntryInput,
@@ -37,6 +43,41 @@ import { iso } from '../views.js';
 type Executor = Sql<Record<string, unknown>> | TransactionSql<Record<string, unknown>>;
 
 const ZERO_UUID = '00000000-0000-0000-0000-000000000000';
+
+const FORESHADOWING_TRANSITIONS: Record<
+  LedgerForeshadowingState,
+  readonly LedgerForeshadowingState[]
+> = {
+  planted: ['planted', 'reinforced', 'paid_off', 'abandoned'],
+  reinforced: ['reinforced', 'paid_off', 'abandoned'],
+  paid_off: ['paid_off'],
+  abandoned: ['abandoned'],
+};
+
+const FORESHADOWING_STATE_LABELS: Record<LedgerForeshadowingState, string> = {
+  planted: '已埋设',
+  reinforced: '已强化',
+  paid_off: '已回收',
+  abandoned: '已放弃',
+};
+
+function isForeshadowingPayload(
+  payload: LedgerEntryPayload,
+): payload is LedgerForeshadowingPayload {
+  return 'seedChapterId' in payload;
+}
+
+function assertForeshadowingTransition(
+  from: LedgerForeshadowingState,
+  to: LedgerForeshadowingState,
+): void {
+  if (FORESHADOWING_TRANSITIONS[from].includes(to)) return;
+  throw conflict(
+    'LEDGER_FORESHADOWING_TRANSITION',
+    `伏笔状态不能从「${FORESHADOWING_STATE_LABELS[from]}」直接变为「${FORESHADOWING_STATE_LABELS[to]}」；已回收或已放弃的伏笔不能重新打开`,
+    { from, to, allowed: FORESHADOWING_TRANSITIONS[from] },
+  );
+}
 
 interface EntryRow {
   id: string;
@@ -57,6 +98,8 @@ interface EntryRow {
   updated_at: Date | string;
   current_version_no: number | null;
   draft_version_no: number | null;
+  current_snapshot?: LedgerEntrySnapshot | null;
+  draft_snapshot?: LedgerEntrySnapshot | null;
   created_by_name?: string | null;
   created_by_email?: string | null;
   updated_by_name?: string | null;
@@ -91,7 +134,10 @@ function actor(
   return id && name && email ? { id, name, email } : null;
 }
 
-function mapSummary(row: EntryRow): LedgerEntrySummary {
+function mapSummary(
+  row: EntryRow,
+  foreshadowing?: LedgerForeshadowingSummary | null,
+): LedgerEntrySummary {
   return {
     id: row.id,
     workId: row.work_id,
@@ -104,6 +150,7 @@ function mapSummary(row: EntryRow): LedgerEntrySummary {
     sourceChapterId: row.source_chapter_id,
     currentVersionNo: row.current_version_no,
     draftVersionNo: row.draft_version_no,
+    ...(row.kind === 'foreshadowing' ? { foreshadowing: foreshadowing ?? null } : {}),
     updatedAt: iso(row.updated_at),
   };
 }
@@ -126,6 +173,8 @@ const ENTRY_SELECT = sql`
     e.created_by, e.updated_by, e.created_at, e.updated_at,
     cv.version_no AS current_version_no,
     dv.version_no AS draft_version_no,
+    cv.snapshot AS current_snapshot,
+    dv.snapshot AS draft_snapshot,
     cu.name AS created_by_name, cu.email AS created_by_email,
     uu.name AS updated_by_name, uu.email AS updated_by_email
   FROM ledger_entries e
@@ -219,8 +268,13 @@ async function loadDetail(
   const draft = row.draft_version_id
     ? await loadVersionById(exec, workspaceId, entryId, row.draft_version_id)
     : null;
+  let foreshadowing: LedgerForeshadowingSummary | null = null;
+  if (row.kind === 'foreshadowing') {
+    const context = await loadForeshadowingContext(exec, [row]);
+    foreshadowing = foreshadowingSummary(row, context);
+  }
   return {
-    ...mapSummary(row),
+    ...mapSummary(row, foreshadowing),
     currentVersion: current ? mapVersion(current) : null,
     draftVersion: draft ? mapVersion(draft) : null,
     createdBy: actor(row.created_by, row.created_by_name, row.created_by_email),
@@ -260,23 +314,6 @@ async function assertSourceChapter(
   }
 }
 
-async function assertPayloadChapter(
-  exec: Executor,
-  workspaceId: string,
-  workId: string,
-  chapterId: string,
-): Promise<void> {
-  const rows = await exec<{ id: string }[]>`
-    SELECT c.id
-    FROM chapters c
-    WHERE c.id = ${chapterId} AND c.work_id = ${workId}
-      AND EXISTS (
-        SELECT 1 FROM works w WHERE w.id = c.work_id AND w.workspace_id = ${workspaceId}
-      )
-  `;
-  if (!rows[0]) throw notFound('LEDGER_CHAPTER_NOT_FOUND', '章节不存在或不属于当前作品');
-}
-
 async function parseAndValidatePayload(
   exec: Executor,
   workspaceId: string,
@@ -313,9 +350,48 @@ async function parseAndValidatePayload(
     return payload;
   }
   const payload = ledgerForeshadowingPayloadSchema.parse(value);
-  await assertPayloadChapter(exec, workspaceId, workId, payload.seedChapterId);
+  const chapterIds = Array.from(
+    new Set(
+      [payload.seedChapterId, payload.payoffChapterId].filter(
+        (chapterId): chapterId is string => Boolean(chapterId),
+      ),
+    ),
+  );
+  const rows = await exec<{ id: string; number: number }[]>`
+    SELECT id, number FROM chapters
+    WHERE work_id = ${workId} AND id IN ${sql(chapterIds)}
+  `;
+  const numberById = new Map(rows.map((row) => [row.id, row.number]));
+  const seedNumber = numberById.get(payload.seedChapterId);
+  if (seedNumber === undefined) {
+    throw notFound('LEDGER_CHAPTER_NOT_FOUND', '埋设章节不存在或不属于当前作品');
+  }
+  if (
+    (payload.payoffChapterMin !== null && payload.payoffChapterMin < seedNumber) ||
+    (payload.payoffChapterMax !== null && payload.payoffChapterMax < seedNumber)
+  ) {
+    throw badRequest(
+      'LEDGER_PAYOFF_WINDOW_BEFORE_SEED',
+      '计划回收窗口不能早于埋设章节',
+    );
+  }
   if (payload.payoffChapterId) {
-    await assertPayloadChapter(exec, workspaceId, workId, payload.payoffChapterId);
+    const payoffNumber = numberById.get(payload.payoffChapterId);
+    if (payoffNumber === undefined) {
+      throw notFound('LEDGER_CHAPTER_NOT_FOUND', '回收章节不存在或不属于当前作品');
+    }
+    if (payoffNumber < seedNumber) {
+      throw badRequest('LEDGER_PAYOFF_BEFORE_SEED', '回收章节不能早于埋设章节');
+    }
+    if (
+      (payload.payoffChapterMin !== null && payoffNumber < payload.payoffChapterMin) ||
+      (payload.payoffChapterMax !== null && payoffNumber > payload.payoffChapterMax)
+    ) {
+      throw badRequest(
+        'LEDGER_PAYOFF_OUTSIDE_WINDOW',
+        '回收章节不在计划回收窗口内；请调整窗口或回收章节',
+      );
+    }
   }
   return payload;
 }
@@ -468,7 +544,162 @@ export async function listLedgerEntries(
     ORDER BY e.updated_at DESC, e.name ASC
     LIMIT ${query.limit}
   `;
-  return { entries: rows.map(mapSummary) };
+  const context = await loadForeshadowingContext(sql, rows);
+  const summaries = foreshadowingSummaries(rows, context);
+  return { entries: rows.map((row) => mapSummary(row, summaries.get(row.id))) };
+}
+
+export async function getForeshadowingReport(
+  auth: AuthContext,
+  workId?: string,
+): Promise<LedgerForeshadowingReport> {
+  assertCanReadLedger(auth.role);
+  if (workId) await assertWork(sql, auth.workspace.id, workId);
+  const conditions = [
+    sql`e.workspace_id = ${auth.workspace.id}`,
+    sql`e.kind = 'foreshadowing'`,
+    sql`e.status = 'active'`,
+    sql`e.current_version_id IS NOT NULL`,
+  ];
+  if (workId) conditions.push(sql`e.work_id = ${workId}`);
+  const where = conditions.reduce((left, right) => sql`${left} AND ${right}`);
+  const rows = await sql<EntryRow[]>`
+    ${ENTRY_SELECT}
+    WHERE ${where}
+    ORDER BY e.name ASC
+  `;
+  const context = await loadForeshadowingContext(sql, rows);
+  const items: LedgerForeshadowingReportItem[] = [];
+  for (const row of rows) {
+    const summary = foreshadowingSummary(row, context);
+    const current = foreshadowingSnapshot(row);
+    if (
+      !summary ||
+      !current ||
+      !row.work_id ||
+      !isForeshadowingPayload(current.snapshot.payload)
+    ) {
+      continue;
+    }
+    items.push({
+      ...summary,
+      id: row.id,
+      workId: row.work_id,
+      name: row.name,
+      summary: row.summary,
+      note: current.snapshot.payload.note,
+      versionNo: row.current_version_no ?? 0,
+    });
+  }
+  const stateRank: Record<LedgerForeshadowingState, number> = {
+    planted: 0,
+    reinforced: 1,
+    paid_off: 2,
+    abandoned: 3,
+  };
+  items.sort(
+    (left, right) =>
+      Number(right.overdue) - Number(left.overdue) ||
+      stateRank[left.state] - stateRank[right.state] ||
+      left.name.localeCompare(right.name, 'zh-CN'),
+  );
+  const unresolved = items.filter(
+    (item) => item.state === 'planted' || item.state === 'reinforced',
+  ).length;
+  return {
+    workId: workId ?? null,
+    items,
+    summary: {
+      total: items.length,
+      unresolved,
+      overdue: items.filter((item) => item.overdue).length,
+      paidOff: items.filter((item) => item.state === 'paid_off').length,
+      abandoned: items.filter((item) => item.state === 'abandoned').length,
+    },
+    note:
+      '报告只读取已生效的伏笔版本；逾期按当前正典最大章号与计划回收结束章比较，只是提醒，不改变状态，也不判定失败。',
+  };
+}
+
+export async function getForeshadowingReminders(
+  auth: AuthContext,
+  chapterId: string,
+): Promise<LedgerForeshadowingReminders> {
+  assertCanReadLedger(auth.role);
+  const chapterRows = await sql<ForeshadowingChapterRow[]>`
+    SELECT c.id, c.work_id, c.number, c.title
+    FROM chapters c
+    JOIN works w ON w.id = c.work_id
+    WHERE c.id = ${chapterId} AND w.workspace_id = ${auth.workspace.id}
+  `;
+  const chapter = chapterRows[0];
+  if (!chapter) throw notFound('CHAPTER_NOT_FOUND', '章节不存在或不属于当前工作区');
+
+  const rows = await sql<EntryRow[]>`
+    ${ENTRY_SELECT}
+    WHERE e.workspace_id = ${auth.workspace.id}
+      AND e.kind = 'foreshadowing'
+      AND e.status = 'active'
+      AND e.work_id = ${chapter.work_id}
+      AND e.current_version_id IS NOT NULL
+    ORDER BY e.name ASC
+  `;
+  const context = await loadForeshadowingContext(sql, rows, [chapter.work_id]);
+  const reminders: LedgerForeshadowingReminders['reminders'] = [];
+  for (const row of rows) {
+    const summary = foreshadowingSummary(row, context);
+    const current = foreshadowingSnapshot(row);
+    if (
+      !summary ||
+      !current ||
+      !row.work_id ||
+      !isForeshadowingPayload(current.snapshot.payload)
+    ) {
+      continue;
+    }
+    if (summary.state !== 'planted' && summary.state !== 'reinforced') continue;
+    if (summary.seedChapter.number > chapter.number) continue;
+    const payload = current.snapshot.payload;
+    const hasWindow = payload.payoffChapterMin !== null || payload.payoffChapterMax !== null;
+    if (!hasWindow) continue;
+    const inWindow =
+      (payload.payoffChapterMin === null || chapter.number >= payload.payoffChapterMin) &&
+      (payload.payoffChapterMax === null || chapter.number <= payload.payoffChapterMax);
+    if (!summary.overdue && !inWindow) continue;
+    const window = payoffWindowText(payload.payoffChapterMin, payload.payoffChapterMax);
+    reminders.push({
+      ...summary,
+      id: row.id,
+      workId: row.work_id,
+      name: row.name,
+      summary: row.summary,
+      note: payload.note,
+      versionNo: row.current_version_no ?? 0,
+      reason: summary.overdue ? 'overdue' : 'in_window',
+      message: summary.overdue
+        ? `计划在${window}回收，当前正典已推进到第 ${summary.latestCanonChapter!.number} 章，已逾期 ${summary.overdueBy} 章。`
+        : `计划在${window}回收，本章第 ${chapter.number} 章进入回收窗口。`,
+    });
+  }
+  reminders.sort(
+    (left, right) =>
+      Number(right.reason === 'overdue') - Number(left.reason === 'overdue') ||
+      left.seedChapter.number - right.seedChapter.number ||
+      left.name.localeCompare(right.name, 'zh-CN'),
+  );
+  const latestCanon = context.latestCanonByWork.get(chapter.work_id) ?? null;
+  return {
+    chapterId: chapter.id,
+    chapter: chapterRef(chapter),
+    latestCanonChapter: latestCanon ? chapterRef(latestCanon) : null,
+    reminders,
+    note:
+      reminders.length > 0
+        ? '提醒只读取已生效伏笔，按本章章号与当前正典判断；逾期不会自动改用章或改变伏笔状态。'
+        : rows.length > 0
+          ? '本章没有进入计划回收窗口的未回收伏笔，也没有已逾期提醒。'
+          : '尚未发布伏笔台账；发布后，进入计划回收窗口的未回收伏笔会在这里提醒。',
+  };
 }
 
 export async function getLedgerEntry(
@@ -621,6 +852,23 @@ export async function saveLedgerDraft(
       input.payload === undefined
         ? base.payload
         : await parseAndValidatePayload(tx, workspaceId, entry.work_id, kind, input.payload);
+
+    if (kind === 'foreshadowing' && entry.current_version_id) {
+      const currentVersion = await loadVersionById(
+        tx,
+        workspaceId,
+        entryId,
+        entry.current_version_id,
+      );
+      const previousPayload = currentVersion?.snapshot.payload;
+      if (
+        previousPayload &&
+        isForeshadowingPayload(previousPayload) &&
+        isForeshadowingPayload(payload)
+      ) {
+        assertForeshadowingTransition(previousPayload.state, payload.state);
+      }
+    }
 
     await assertSourceChapter(tx, workspaceId, entry.work_id, sourceChapterId);
     await assertNameAvailable(
@@ -919,6 +1167,123 @@ interface CharacterContentRow extends CharacterChapterRow {
 
 function chapterRef(row: CharacterChapterRow): LedgerChapterRef {
   return { id: row.id, number: row.number, title: row.title };
+}
+
+interface ForeshadowingChapterRow extends CharacterChapterRow {
+  work_id: string;
+}
+
+interface ForeshadowingContext {
+  chapters: Map<string, ForeshadowingChapterRow>;
+  latestCanonByWork: Map<string, ForeshadowingChapterRow>;
+}
+
+function foreshadowingSnapshot(row: EntryRow): {
+  snapshot: LedgerEntrySnapshot;
+  basis: 'current' | 'draft';
+} | null {
+  if (row.current_snapshot) return { snapshot: row.current_snapshot, basis: 'current' };
+  if (row.draft_snapshot) return { snapshot: row.draft_snapshot, basis: 'draft' };
+  return null;
+}
+
+async function loadForeshadowingContext(
+  exec: Executor,
+  rows: EntryRow[],
+  extraWorkIds: string[] = [],
+): Promise<ForeshadowingContext> {
+  const chapterIds = new Set<string>();
+  const workIds = new Set<string>(extraWorkIds);
+  for (const row of rows) {
+    if (row.kind !== 'foreshadowing' || !row.work_id) continue;
+    const current = foreshadowingSnapshot(row);
+    if (!current || !isForeshadowingPayload(current.snapshot.payload)) continue;
+    workIds.add(row.work_id);
+    chapterIds.add(current.snapshot.payload.seedChapterId);
+    if (current.snapshot.payload.payoffChapterId) {
+      chapterIds.add(current.snapshot.payload.payoffChapterId);
+    }
+  }
+  if (workIds.size === 0) {
+    return { chapters: new Map(), latestCanonByWork: new Map() };
+  }
+  const chapterRows =
+    chapterIds.size === 0
+      ? []
+      : await exec<ForeshadowingChapterRow[]>`
+          SELECT id, work_id, number, title
+          FROM chapters
+          WHERE work_id IN ${sql(Array.from(workIds))}
+            AND id IN ${sql(Array.from(chapterIds))}
+        `;
+  const latestRows = await exec<ForeshadowingChapterRow[]>`
+    SELECT DISTINCT ON (c.work_id) c.id, c.work_id, c.number, c.title
+    FROM chapters c
+    JOIN canon_current cc ON cc.chapter_id = c.id
+    WHERE c.work_id IN ${sql(Array.from(workIds))}
+    ORDER BY c.work_id, c.number DESC
+  `;
+  return {
+    chapters: new Map(chapterRows.map((row) => [row.id, row])),
+    latestCanonByWork: new Map(latestRows.map((row) => [row.work_id, row])),
+  };
+}
+
+function foreshadowingSummary(
+  row: EntryRow,
+  context: ForeshadowingContext,
+): LedgerForeshadowingSummary | null {
+  if (row.kind !== 'foreshadowing' || !row.work_id) return null;
+  const current = foreshadowingSnapshot(row);
+  if (!current || !isForeshadowingPayload(current.snapshot.payload)) return null;
+  const payload = current.snapshot.payload;
+  const seed = context.chapters.get(payload.seedChapterId);
+  if (!seed) return null;
+  const payoff = payload.payoffChapterId
+    ? context.chapters.get(payload.payoffChapterId) ?? null
+    : null;
+  const latestCanon = context.latestCanonByWork.get(row.work_id) ?? null;
+  const unresolved = payload.state === 'planted' || payload.state === 'reinforced';
+  const overdue =
+    unresolved &&
+    payload.payoffChapterMax !== null &&
+    latestCanon !== null &&
+    latestCanon.number > payload.payoffChapterMax;
+  return {
+    state: payload.state,
+    importance: payload.importance,
+    seedChapter: chapterRef(seed),
+    payoffChapterMin: payload.payoffChapterMin,
+    payoffChapterMax: payload.payoffChapterMax,
+    payoffChapter: payoff ? chapterRef(payoff) : null,
+    resolutionNote: payload.resolutionNote,
+    latestCanonChapter: latestCanon ? chapterRef(latestCanon) : null,
+    overdue,
+    overdueBy: overdue && latestCanon ? latestCanon.number - payload.payoffChapterMax! : null,
+    basis: current.basis,
+  };
+}
+
+function payoffWindowText(
+  min: number | null,
+  max: number | null,
+): string {
+  if (min !== null && max !== null) return `第 ${min}–${max} 章`;
+  if (min !== null) return `第 ${min} 章起`;
+  if (max !== null) return `第 ${max} 章前`;
+  return '未设置计划窗口';
+}
+
+function foreshadowingSummaries(
+  rows: EntryRow[],
+  context: ForeshadowingContext,
+): Map<string, LedgerForeshadowingSummary> {
+  const result = new Map<string, LedgerForeshadowingSummary>();
+  for (const row of rows) {
+    const summary = foreshadowingSummary(row, context);
+    if (summary) result.set(row.id, summary);
+  }
+  return result;
 }
 
 function stateEntries(

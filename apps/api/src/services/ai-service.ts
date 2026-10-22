@@ -362,8 +362,8 @@ export function buildProposalContext(
     retrievalText = section.used;
   }
 
-  unavailable.push('设定集与角色档案（未建库，M4-B 未接入）');
-  unavailable.push('伏笔台账（未建库，M4-B 未接入）');
+  unavailable.push('设定集与角色档案（M6 已建库，AI 上下文尚未接入）');
+  unavailable.push('伏笔台账（M6-3 已建库，AI 上下文尚未接入）');
   if (retrieval && retrieval.view.status === 'unavailable') {
     unavailable.push(`正典检索（${retrieval.view.reason ?? '不可用'}）`);
   }

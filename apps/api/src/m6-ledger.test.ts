@@ -608,6 +608,7 @@ suite('M6-0 账本：版本、审计、权限与工作区隔离', () => {
           seedChapterId: chapterA1,
           state: 'paid_off',
           payoffChapterId: chapterB1,
+          resolutionNote: '跨作品回收测试',
         },
       }),
       404,
