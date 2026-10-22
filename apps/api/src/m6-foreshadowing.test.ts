@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type {
   LedgerEntryDetail,
   LedgerEntryListResponse,
+  LedgerEntryVersionListResponse,
   LedgerForeshadowingReminders,
   LedgerForeshadowingReport,
   MeResponse,
@@ -804,5 +805,286 @@ suite('M6-3 伏笔台账：回收状态、逾期报告与写作台提醒', () =>
         },
       }),
     ).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  it('账本域规则的拒绝：来源章节串作品、回收早于埋设、无草稿、版本不存在', async () => {
+    // 工作区版本号是"发布/归档才动"的口径，这里当作副作用计数器用。
+    async function counters() {
+      const rows = await sql<{ ledger: string; settings: string }[]>`
+        SELECT ledger_version::text AS ledger, settings_version::text AS settings
+        FROM workspaces WHERE id = ${workspace}
+      `;
+      if (!rows[0]) throw new Error('工作区版本号读取失败');
+      return rows[0];
+    }
+    async function detail(entryId: string) {
+      const result = await call<LedgerEntryDetail>(
+        'GET',
+        `/api/ledger/entries/${entryId}`,
+        viewer,
+      );
+      expect(result.status).toBe(200);
+      return result.body;
+    }
+    function payloadState(entry: LedgerEntryDetail) {
+      return (entry.currentVersion?.snapshot.payload as { state: string }).state;
+    }
+
+    const baseline = await counters();
+
+    // ① 来源章节与条目必须属于同一作品（ledger-service.ts:314）。
+    //    同一工作区的另一个作品（emptyWork / emptyChapter）照样拦；create 路径上这道守卫
+    //    排在 payload 校验之前（:743 对 :744），所以"来源章节串作品"和"埋设章节也串作品"
+    //    同时出现时，先响的是 400 串作品，而不是 payload 那条 404。
+    expectError(
+      await call('POST', '/api/ledger/entries', author, {
+        kind: 'foreshadowing',
+        workId: work,
+        name: '串作品的来源章节',
+        sourceChapterId: emptyChapter,
+        payload: { seedChapterId: emptyChapter },
+      }),
+      400,
+      'LEDGER_CHAPTER_WORK_MISMATCH',
+    );
+    // 同一条守卫的另一分支：章节在工作区里查不到用的是 CHAPTER_NOT_FOUND（:312），
+    // 而 payload 里的章节越界用的是 LEDGER_CHAPTER_NOT_FOUND（:348/:368）——两个码、两种说法。
+    expectError(
+      await call('POST', '/api/ledger/entries', author, {
+        kind: 'foreshadowing',
+        workId: work,
+        name: '跨工作区的来源章节',
+        sourceChapterId: outsiderChapter,
+        payload: { seedChapterId: chapter1 },
+      }),
+      404,
+      'CHAPTER_NOT_FOUND',
+    );
+
+    // 正控制：同作品的来源章节正常落库，并留给草稿路径复验同一道守卫。
+    const created = await call<LedgerEntryDetail | ErrorBody>(
+      'POST',
+      '/api/ledger/entries',
+      author,
+      {
+        kind: 'foreshadowing',
+        workId: work,
+        name: '带来源章节的伏笔',
+        sourceChapterId: chapter1,
+        payload: { seedChapterId: chapter1, payoffChapterMin: 2, payoffChapterMax: 3 },
+      },
+    );
+    expect(created.status).toBe(200);
+    const entry = created.body as LedgerEntryDetail;
+    expect(entry.draftVersion?.snapshot.sourceChapterId).toBe(chapter1);
+    const firstDraftId = entry.draftVersion!.id;
+    const publishedV1 = await publish(author, entry);
+    expect(publishedV1.currentVersion?.versionNo).toBe(1);
+
+    // 草稿路径（:885）复验同一道守卫；被拒的那次不能留下草稿。
+    expectError(
+      await call('PUT', `/api/ledger/entries/${entry.id}/draft`, author, {
+        expectedDraftVersionId: null,
+        sourceChapterId: emptyChapter,
+      }),
+      400,
+      'LEDGER_CHAPTER_WORK_MISMATCH',
+    );
+    const afterMismatch = await detail(entry.id);
+    expect(afterMismatch.draftVersion).toBeNull();
+
+    // ② 回收章节不能早于埋设章节（:385）。create 与草稿两条调用点各打一次。
+    expectError(
+      await call('POST', '/api/ledger/entries', author, {
+        kind: 'foreshadowing',
+        workId: work,
+        name: '回收早于埋设',
+        payload: {
+          seedChapterId: chapter3,
+          state: 'paid_off',
+          payoffChapterId: chapter1,
+          resolutionNote: '故意把回收放在埋设之前。',
+        },
+      }),
+      400,
+      'LEDGER_PAYOFF_BEFORE_SEED',
+    );
+    expectError(
+      await saveDraft(author, entry.id, null, {
+        seedChapterId: chapter3,
+        state: 'paid_off',
+        payoffChapterId: chapter1,
+        resolutionNote: '草稿里也把回收放在埋设之前。',
+      }),
+      400,
+      'LEDGER_PAYOFF_BEFORE_SEED',
+    );
+    // 正控制：回收晚于埋设就放行，证明这条规则不是"paid_off 一律不许"。
+    const paidOffDraft = await saveDraft(author, entry.id, null, {
+      seedChapterId: chapter2,
+      state: 'paid_off',
+      payoffChapterId: chapter4,
+      resolutionNote: '第 4 章以对话回收，晚于埋设的第 2 章。',
+    });
+    expect(paidOffDraft.status).toBe(200);
+    const secondDraftId = (paidOffDraft.body as LedgerEntryDetail).draftVersion!.id;
+    expect(secondDraftId).not.toBe(firstDraftId);
+    const publishedV2 = await publish(author, paidOffDraft.body as LedgerEntryDetail);
+    expect(publishedV2.currentVersion?.versionNo).toBe(2);
+    expect(payloadState(publishedV2)).toBe('paid_off');
+
+    // ③ 同一次请求里同时违反"payload 域规则"和"状态只能向前"时，先响 400 的域规则：
+    //    parseAndValidatePayload 在 :866，assertForeshadowingTransition 在 :881。
+    //    paid_off → planted 本身是 409，但窗口 1..2 早于埋设第 3 章先被拦下。
+    expectError(
+      await saveDraft(author, entry.id, null, {
+        seedChapterId: chapter3,
+        payoffChapterMin: 1,
+        payoffChapterMax: 2,
+        state: 'planted',
+      }),
+      400,
+      'LEDGER_PAYOFF_WINDOW_BEFORE_SEED',
+    );
+
+    // ④ 发布会把草稿槽位清空（:1008），所以第二次发布先响"没有待发布的草稿"（:964），
+    //    轮不到"草稿已被其他修改更新"（:967）——即使请求带的还是那个真实存在过的版本 id。
+    const beforeRepublish = await counters();
+    expectError(
+      await call('POST', `/api/ledger/entries/${entry.id}/publish`, author, {
+        expectedDraftVersionId: secondDraftId,
+        changeSummary: '重复发布',
+      }),
+      409,
+      'LEDGER_NO_DRAFT',
+    );
+    expect(await counters()).toEqual(beforeRepublish);
+    const stillV2 = await detail(entry.id);
+    expect(stillV2.currentVersion?.versionNo).toBe(2);
+    expect(stillV2.draftVersion).toBeNull();
+
+    // ⑤ 回滚按版本号取目标版本（:1141），但草稿槽位比对排在它前面（:1134）。
+    //    条目此刻没有草稿，expectedDraftVersionId 传 null 才能穿透到版本查询。
+    expectError(
+      await call('POST', `/api/ledger/entries/${entry.id}/rollback`, author, {
+        targetVersionNo: 99,
+        expectedDraftVersionId: null,
+        reason: '回滚到一个不存在的版本',
+      }),
+      404,
+      'LEDGER_VERSION_NOT_FOUND',
+    );
+    const orderDraft = await call<LedgerEntryDetail | ErrorBody>(
+      'PUT',
+      `/api/ledger/entries/${entry.id}/draft`,
+      author,
+      {
+        expectedDraftVersionId: null,
+        summary: '回滚守卫顺序用的草稿',
+        changeSummary: '造一条草稿',
+      },
+    );
+    expect(orderDraft.status).toBe(200);
+    const liveDraftId = (orderDraft.body as LedgerEntryDetail).draftVersion!.id;
+    expectError(
+      await call('POST', `/api/ledger/entries/${entry.id}/rollback`, author, {
+        targetVersionNo: 99,
+        expectedDraftVersionId: randomUUID(),
+        reason: '槽位与版本号同时不对',
+      }),
+      409,
+      'LEDGER_DRAFT_CONFLICT',
+    );
+    // 正控制：槽位对、版本号存在 → 200，回滚只写草稿，活动版本不动。
+    const rolled = await call<LedgerEntryDetail | ErrorBody>(
+      'POST',
+      `/api/ledger/entries/${entry.id}/rollback`,
+      author,
+      {
+        targetVersionNo: 1,
+        expectedDraftVersionId: liveDraftId,
+        reason: '回到最初的埋设与窗口',
+      },
+    );
+    expect(rolled.status).toBe(200);
+    const rolledDraft = rolled.body as LedgerEntryDetail;
+    expect(rolledDraft.currentVersion?.versionNo).toBe(2);
+    expect(rolledDraft.draftVersion?.versionNo).toBe(4);
+    expect(rolledDraft.draftVersion?.snapshot.sourceChapterId).toBe(chapter1);
+    const versions = await call<LedgerEntryVersionListResponse>(
+      'GET',
+      `/api/ledger/entries/${entry.id}/versions`,
+      reviewer,
+    );
+    expect(versions.body.versions.map((version) => version.versionNo)).toEqual([4, 3, 2, 1]);
+
+    // ⑥ 回滚 + 人工发布可以把状态往回拉：编辑路径的"只能向前"不约束回滚落下的草稿，
+    //    发布也不复算状态机。这不是静默——回滚要写 reason，审计与事件都留痕。
+    const publishedV4 = await publish(author, rolledDraft);
+    expect(publishedV4.currentVersion?.versionNo).toBe(4);
+    expect(payloadState(publishedV4)).toBe('planted');
+    const rollbackTrails = await sql<{ n: string; reason: string; target: string }[]>`
+      SELECT count(*)::text AS n,
+             max(metadata ->> 'reason') AS reason,
+             max(metadata ->> 'targetVersionNo') AS target
+      FROM audit_log
+      WHERE workspace_id = ${workspace}
+        AND action = 'ledger.entry.rollback_draft'
+        AND object_id = ${entry.id}
+    `;
+    expect(rollbackTrails[0]).toEqual({
+      n: '1',
+      reason: '回到最初的埋设与窗口',
+      target: '1',
+    });
+    const rollbackEvents = await sql<{ n: string }[]>`
+      SELECT count(*)::text AS n FROM events
+      WHERE workspace_id = ${workspace}
+        AND event_type = 'ledger.entry.rollback_drafted'
+        AND aggregate_id = ${entry.id}
+    `;
+    expect(rollbackEvents[0]).toEqual({ n: '1' });
+
+    // ⑦ 三次成功发布之外没有任何别的写：版本号恰好 +3，设定版本一步没动。
+    const after = await counters();
+    expect(after).toEqual({
+      ledger: String(Number(baseline.ledger) + 3),
+      settings: baseline.settings,
+    });
+
+    // ⑧ 「角色/伏笔必须属于一个作品」这条服务层守卫从 HTTP 打不到：
+    //    契约的可辨识联合把 character/foreshadowing 的 workId 定成必填 uuid（缺省与 null 都 400），
+    //    所以看到的是通用校验码，而不是服务层那条文案。
+    for (const workId of [undefined, null]) {
+      expectError(
+        await call('POST', '/api/ledger/entries', author, {
+          kind: 'character',
+          ...(workId === undefined ? {} : { workId }),
+          name: `没有作品的角色 ${String(workId)}`,
+          payload: {},
+        }),
+        400,
+        'VALIDATION',
+      );
+    }
+    // 数据库也不给这条路：kind 非 setting 时 scope 必须是 work，而 scope=work 必须有 work_id，
+    // 所以"角色条目没有作品"这个状态压根存不进去（0015_m6_ledger.sql:20-21）。
+    let violation = '';
+    try {
+      await sql`
+        INSERT INTO ledger_entries (id, workspace_id, work_id, kind, scope, name)
+        VALUES (${randomUUID()}, ${workspace}, NULL, 'character', 'workspace', '空作品的角色')
+      `;
+    } catch (error) {
+      violation = (error as { code?: string }).code ?? '';
+    }
+    expect(violation).toBe('23514');
+    const impossible = await sql<{ n: string }[]>`
+      SELECT count(*)::text AS n FROM ledger_entries
+      WHERE workspace_id = ${workspace}
+        AND kind <> 'setting'
+        AND work_id IS NULL
+    `;
+    expect(impossible[0]).toEqual({ n: '0' });
   });
 });
