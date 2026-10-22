@@ -381,6 +381,20 @@ suite('M3 持久化锁 / 重试 / 故障转移 / 成本', () => {
     for (const id of [primaryId, backupId]) {
       if (id) await sql`DELETE FROM model_providers WHERE id = ${id}`;
     }
+    // 删 model_providers 行不会带走它们的 create 审计：这两个服务商建在演示工作区里，
+    // 不清就是每次全量运行给共享库留下 2 条永久增长、且指向已消失对象的审计。
+    await sql`
+      DELETE FROM audit_log
+      WHERE action = 'model_provider.create'
+        AND object_id IN (${primaryId ?? null}, ${backupId ?? null})
+    `;
+    // 先取值、最后断言：断言若放在这里失败，会跳过后面的服务商开关恢复和进程关闭。
+    const leftoverProviderAudits = await sql`
+      SELECT count(*)::text AS n
+      FROM audit_log
+      WHERE action = 'model_provider.create'
+        AND object_id IN (${primaryId ?? null}, ${backupId ?? null})
+    `;
     for (const provider of existingProviders) {
       await sql`
         UPDATE model_providers SET is_enabled = ${provider.is_enabled}
@@ -390,6 +404,7 @@ suite('M3 持久化锁 / 重试 / 故障转移 / 成本', () => {
     if (stub) await new Promise<void>((resolve) => stub.close(() => resolve()));
     if (app) await app.close();
     await closeDb();
+    expect(leftoverProviderAudits[0]!.n).toBe('0');
   });
 
   it('同一服务商首次 500 后自动重试，并写入 token 成本', async () => {

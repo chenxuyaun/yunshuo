@@ -6,6 +6,7 @@ import type {
   ImportChaptersInput,
   ImportChaptersResponse,
   MeResponse,
+  VersionDetail,
 } from '@yunshuo/contracts';
 import { closeDb, sql } from '@yunshuo/db';
 import { countWords } from '@yunshuo/domain';
@@ -472,5 +473,83 @@ suite('旧章导入：迁移版本、权限与冲突边界', () => {
     expect(ownList.status).toBe(200);
     expect(ownList.body).toHaveLength(1);
     expect(ownList.body[0]?.workTitle).toBe(WORK_TITLE);
+  });
+
+  it('正典版本详情按 id 读取：跨工作区与幽灵 id 都是 404，计费角色 403，导入版本仍显示未评估', async () => {
+    interface VersionAnchor {
+      id: string;
+      content: string;
+      actorName: string | null;
+      versionNo: number;
+    }
+
+    async function currentVersion(chapterId: string): Promise<VersionAnchor> {
+      const rows = await sql<
+        { id: string; content: string; actor_name: string | null; version_no: number }[]
+      >`
+        SELECT v.id, v.content, u.name AS actor_name, v.version_no
+        FROM chapters c
+        JOIN canon_versions v ON v.id = c.current_version_id
+        LEFT JOIN users u ON u.id = v.actor_id
+        WHERE c.id = ${chapterId}
+      `;
+      const row = rows[0];
+      if (!row) throw new Error('章节没有生效正典版本');
+      return { id: row.id, content: row.content, actorName: row.actor_name, versionNo: row.version_no };
+    }
+
+    const primaryChapterId = (await chapterIdsByNumber(WORK_TITLE)).get(1)!;
+    const expected = await currentVersion(primaryChapterId);
+
+    const detail = await call<VersionDetail>(
+      'GET',
+      `/api/versions/${expected.id}`,
+      owner,
+    );
+    expect(detail.status).toBe(200);
+    expect(detail.body.id).toBe(expected.id);
+    expect(detail.body.versionNo).toBe(expected.versionNo);
+    expect(detail.body.content).toBe(expected.content);
+    expect(detail.body.actorName).toBe(expected.actorName);
+    expect(detail.body.source).toBe('import');
+    expect(detail.body.parentVersionId).toBeNull();
+    expect(detail.body.waiver).toBeNull();
+    // 导入章节的“未评估”必须在这一页也成立，不能只在列表里显示
+    expect(detail.body.evaluationId).toBeNull();
+    expect(detail.body.evaluation).toBeNull();
+    expect(detail.body.gateStatus).toBe('not_evaluated');
+
+    const foreignChapterId = (
+      await chapterIdsByNumber(WORK_TITLE, otherWorkspaceId)
+    ).get(1)!;
+    const foreign = await currentVersion(foreignChapterId);
+    expectError(
+      await call<ErrorBody>('GET', `/api/versions/${foreign.id}`, owner),
+      404,
+      'VERSION_NOT_FOUND',
+    );
+    expectError(
+      await call<ErrorBody>('GET', `/api/versions/${expected.id}`, otherOwner),
+      404,
+      'VERSION_NOT_FOUND',
+    );
+    expectError(
+      await call<ErrorBody>('GET', `/api/versions/${randomUUID()}`, owner),
+      404,
+      'VERSION_NOT_FOUND',
+    );
+
+    // 读取口径与正典一致：审阅者可读，计费角色不可读正文
+    expect((await call('GET', `/api/versions/${expected.id}`, reviewer)).status).toBe(200);
+    expectError(
+      await call<ErrorBody>('GET', `/api/versions/${expected.id}`, billing),
+      403,
+      'FORBIDDEN',
+    );
+    expectError(
+      await call<ErrorBody>('GET', '/api/versions/not-a-uuid', owner),
+      400,
+      'VALIDATION',
+    );
   });
 });

@@ -11,6 +11,7 @@ import { sha256, type Role } from '@yunshuo/domain';
 import { closeDb, sql } from '@yunshuo/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildServer } from './server.js';
+import { SESSION_COOKIE } from './auth.js';
 import { hashPassword } from './passwords.js';
 
 interface Session {
@@ -591,6 +592,59 @@ suite('M5-A 本地账号、邀请与成员角色', () => {
       409,
       'AI_MEMBER_IMMUTABLE',
     );
+  });
+
+  it('登出作废服务端会话：同一 Cookie 复用失败，只影响当次会话', async () => {
+    const email = `logout${EMAIL_SUFFIX}`;
+    const created = await createUser(workspaceA, email, '登出作者', 'author');
+    const first = created.session;
+    const second = await loginPassword(email);
+    const sessionCount = async (): Promise<string> => {
+      const rows = await sql<{ count: string }[]>`
+        SELECT count(*)::text AS count FROM sessions WHERE user_id = ${created.id}
+      `;
+      return rows[0]!.count;
+    };
+    expect(await sessionCount()).toBe('2');
+
+    const out = await app.inject({
+      method: 'POST',
+      url: '/api/auth/logout',
+      headers: { cookie: first.cookie },
+    });
+    expect(out.statusCode).toBe(200);
+    expect(out.json()).toEqual({ ok: true });
+    const setCookie = out.headers['set-cookie'];
+    const cleared = Array.isArray(setCookie) ? setCookie[0] : setCookie;
+    expect(typeof cleared).toBe('string');
+    // 登出删的是服务端会话行，不只是浏览器里的 Cookie：带着原 Cookie 再请求也是 401
+    const token = first.cookie.split('=')[1]!;
+    expect(cleared).toContain(SESSION_COOKIE);
+    expect(cleared).not.toContain(token);
+    expect(await sessionCount()).toBe('1');
+    expectError(await call('GET', '/api/me', first), 401, 'UNAUTHENTICATED');
+    expectError(
+      await call('GET', '/api/me', { cookie: cleared!, me: first.me }),
+      401,
+      'UNAUTHENTICATED',
+    );
+    expect((await call('GET', '/api/me', second)).status).toBe(200);
+
+    // 重复登出与无会话登出都幂等返回 200，不会伪造失败也不会多出会话
+    const again = await app.inject({
+      method: 'POST',
+      url: '/api/auth/logout',
+      headers: { cookie: first.cookie },
+    });
+    expect(again.statusCode).toBe(200);
+    const anonymous = await app.inject({ method: 'POST', url: '/api/auth/logout' });
+    expect(anonymous.statusCode).toBe(200);
+    expect(await sessionCount()).toBe('1');
+
+    const back = await loginPassword(email);
+    expect(await sessionCount()).toBe('2');
+    expect(back.cookie).not.toBe(first.cookie);
+    expect((await call('GET', '/api/me', back)).status).toBe(200);
   });
 
   it('开发登录仍可用，且 AI 主体不能通过密码或开发登录进入', async () => {

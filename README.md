@@ -68,6 +68,8 @@ node scripts/smoke.mjs   # API 主流程：租约→草稿→门禁→审计→�
 node scripts/m4-acceptance.mjs   # 真实嵌入验收：探测→重建→ready→hybrid→去重→降级
 node scripts/retrieval-eval.mjs  # 小样本正典检索评估，报告写入 docs/m4-retrieval-eval.json
 node scripts/ledger-retrieval-eval.mjs   # 小样本账本检索评估，报告写入 docs/m6-ledger-retrieval-eval.json（跑完自清理）
+node scripts/endpoint-test-coverage.mjs  # 端点↔测试筛子：列出没有任何测试文件提到其静态路径前缀的 HTTP 端点
+node scripts/test-db-residue.mjs --save=/tmp/a.json   # 隔离测试库残留快照；跑一遍全量测试后再 --diff=/tmp/a.json，有增量即退出 1
 PERF_API_PID=<监听3101的pid> PERF_STAGES=200,300,500 PERF_CHAPTER_CHARS=600 PERF_CONCURRENCY=1,4,8 PERF_REPORT_NAME=baseline node scripts/m6-perf-baseline.mjs   # 导入与账本扫描的规模/并发基线，需在指向 yunshuo_test 的独立 API 上跑，报告写入 docs/m6-perf-<名称>.json（跑完自清理并断言各表计数回到基线）
 PERF_INDEX_CHAPTERS=1000 PERF_REPORT_NAME=index node scripts/m6-perf-index.mjs   # 千章索引排空与检索基线：除独立 API 外还要有指向同一 yunshuo_test 的 worker 与本机嵌入服务；嵌入服务不可达时直接退出，不会降级成"未配置"来蒙混
 PERF_LEDGER_ENTRIES=1000 PERF_REPORT_NAME=ledger node scripts/m6-perf-ledger-index.mjs   # 千章规模的账本索引排空与账本通道检索基线：同一部千章作品上再发布 1000 条账本条目，正典与账本两段排空分别计时；要求压测前账本为空、且压测前只允许 ≤1 个连接在领 outbox 任务（发现多个实例就直接拒绝启动，避免遗留 worker 把速率读成单 worker），每采样与每阶段结束都会记录实例形状；跑完自清理并还原工作区版本计数
@@ -84,21 +86,21 @@ DATABASE_URL=postgres://yunshuo:yunshuo@localhost:5433/yunshuo_test pnpm db:seed
 pnpm test
 ```
 
-API/worker 的 Vitest 现在强制使用 `yunshuo_test`（可用 `TEST_DATABASE_URL` 覆盖），启动守卫会在库名不是 `yunshuo_test` 时直接失败，避免像早期那样误连开发库。全量测试 **202 项**通过（2026-10-23：domain 4 + model-gateway 5 + retrieval 20 + gates 8 + API 150 + worker 15，共 26 个测试文件）。为保证共用同一个数据库的集成测试可重复，根 `test` 使用 `--workspace-concurrency=1`，API/worker 的 Vitest 关闭文件级并行。API 测试会创建并清理自己的用户/工作区；M4-B 测试使用独立工作区，不会动演示作品。
+API/worker 的 Vitest 现在强制使用 `yunshuo_test`（可用 `TEST_DATABASE_URL` 覆盖），启动守卫会在库名不是 `yunshuo_test` 时直接失败，避免像早期那样误连开发库。全量测试 **204 项**通过（2026-10-23：domain 4 + model-gateway 5 + retrieval 20 + gates 8 + API 152 + worker 15，共 26 个测试文件）。为保证共用同一个数据库的集成测试可重复，根 `test` 使用 `--workspace-concurrency=1`，API/worker 的 Vitest 关闭文件级并行。API 测试会创建并清理自己的用户/工作区；M4-B 测试使用独立工作区，不会动演示作品。
 
-`apps/api/src/m2-workflow.test.ts` 使用真实数据库与 `app.inject`，创建并清理隔离章节“M2 测试章节”（第 9901 章），覆盖租约冲突、放弃修订、提交失败后同键重试、提交/回滚幂等、门禁证据复用、无证据拒绝、豁免申请/自批禁令/独立审批/一次性使用与版本留存。`apps/api/src/m3-runtime.test.ts` 另建隔离章节（第 9902 章）与本地模型桩服务，覆盖持久化生成锁冲突/并发获取/过期回收、同服务商重试、`stream_options` 兼容回退、跨服务商故障转移、部分输出后禁止重试、成本计算与历史回读；人工发起的生成审计在成功与失败两条路径上各钉一条断言，主体必须是 `human`（发起者是人类会话）。
+`apps/api/src/m2-workflow.test.ts` 使用真实数据库与 `app.inject`，创建并清理隔离章节“M2 测试章节”（第 9901 章），覆盖租约冲突、放弃修订、提交失败后同键重试、提交/回滚幂等、门禁证据复用、无证据拒绝、豁免申请/自批禁令/独立审批/一次性使用与版本留存。`apps/api/src/m3-runtime.test.ts` 另建隔离章节（第 9902 章）与本地模型桩服务，覆盖持久化生成锁冲突/并发获取/过期回收、同服务商重试、`stream_options` 兼容回退、跨服务商故障转移、部分输出后禁止重试、成本计算与历史回读；人工发起的生成审计在成功与失败两条路径上各钉一条断言，主体必须是 `human`（发起者是人类会话）。该套件在演示工作区里建两个临时服务商，而删除服务商行不会带走它们的 `model_provider.create` 审计，因此 `afterAll` 按服务商 id 删掉这两条审计并断言归零：补上之前每次全量运行都会给隔离测试库留下 2 条指向已消失对象的孤儿审计，累计到 136 条才被发现。
 
 `apps/api/src/m4-retrieval.test.ts` 使用每次运行唯一的测试工作区与本地 `/embeddings` 桩，覆盖混合检索、相似度下限整通道降级与低分邻居过滤、诊断词法模式、单字回退、工作区隔离、旧版本永不返回、停用/失败/维度漂移时的词法降级、AI 上下文引用与当前章排除、嵌入服务商用途与价表、探测权限、单章/工作区重建权限与去重入队、审计 metadata 回读与字符串拒绝。`apps/worker/src/pipeline.test.ts` 直接驱动索引管线，覆盖 ready、重复任务幂等、迟到任务不降级、重试退避、次数耗尽、401、未配置、维度漂移、旧版本跳过、空正文与崩溃回收。运行前需已启动数据库并执行迁移/种子；数据库不可用时这些套件跳过，且会关闭数据库连接。
 
 `apps/api/src/m4b-automation.test.ts` 使用独立测试工作区与本地模型桩，15 个用例覆盖：作者不能创建或查看授权；预检零模型调用并识别门禁配置缺口；两章无人值守全部通过后以 `batch` 入库，同一用例还断言这两章的 `chapter.commit` 与 `ai.proposal.generate` 审计主体都是 `ai`、actor 都是该 AI 服务账号；AI 服务主体不能开发登录；门禁失败保留草稿与评估但不入库；人工持有租约时 runner 跳过；预算在调用级限制 `max_tokens` 且下一章调用前暂停；剩余预算低于最低生成额度时不发请求；非生产门禁 + 自动入库未确认时预检阻止、仅暂存只提醒；runner 在入库前复核非生产门禁确认；撤销授权停止排队作业；中断作业只能人工恢复；未授权远程端点时预检失败且不发起请求；设置预算但服务商未定价时预检失败；同一工作区不能同时存在两个活跃作业。
 
-`apps/api/src/m5-identity.test.ts` 使用真实数据库，15 个用例覆盖：密码登录成功/失败同码、连续失败限流、主笔可邀请但作者不能查看邀请、邀请一次性且邮箱必须一致、既有账号接受邀请并切换工作区、被移出全部工作区的账号用密码直接接受新邀请且错误密码触发限流、重复邀请/邀请已有成员/撤销/过期、并发创建同一邮箱邀请只保留一条待接受记录、邀请令牌与密码只以哈希入库、只有所有者能改角色与最后一名所有者保护、并发降级两名所有者不会归零、移除成员立即失效其会话及工作区隔离、AI 主体不可邀请/改角色/移除、开发登录仍可用且 AI 主体不能登录、并发接受同一新邮箱只创建一个账号。测试自建用户与工作区并在结束后清理。
+`apps/api/src/m5-identity.test.ts` 使用真实数据库，16 个用例覆盖：密码登录成功/失败同码、连续失败限流、主笔可邀请但作者不能查看邀请、邀请一次性且邮箱必须一致、既有账号接受邀请并切换工作区、被移出全部工作区的账号用密码直接接受新邀请且错误密码触发限流、重复邀请/邀请已有成员/撤销/过期、并发创建同一邮箱邀请只保留一条待接受记录、邀请令牌与密码只以哈希入库、只有所有者能改角色与最后一名所有者保护、并发降级两名所有者不会归零、移除成员立即失效其会话及工作区隔离、AI 主体不可邀请/改角色/移除、开发登录仍可用且 AI 主体不能登录、并发接受同一新邮箱只创建一个账号、登出作废服务端会话（同一 Cookie 复用失败、只影响当次会话、重复与无会话登出幂等）。测试自建用户与工作区并在结束后清理。
 
 `apps/api/src/m5b-account-security.test.ts` 使用真实数据库，11 个用例覆盖：邀请邮件以 `captured` 落入开发内存邮箱且 `mail_messages` 只存元数据、令牌哈希与密码只以哈希入库、修改密码撤销其他会话并保留当前会话、修改密码作废旧重置链接、重置链接一次性且重置后撤销全部会话、重复申请只保留一个有效令牌、过期令牌被拒绝并标记已用、未知/孤儿/已知邮箱返回同一提示且未知邮箱不落邮件或令牌、重置申请按邮箱限流、`MAIL_MODE=off` 时邀请如实返回 `not_configured` 且仍返回接受链接、无密码账号修改密码返回 `PASSWORD_NOT_SET`。
 
 `apps/api/src/m5b-billing.test.ts` 使用独立工作区，8 个用例覆盖：计费管理员可读报表但作者/读者不能；只有所有者与计费管理员能改预算并写前后值审计；计费管理员可改价表但不能接触服务商端点/密钥，聊天价表必须输入输出齐全、嵌入只允许输入价；计费角色不能读取章节、检索、AI 提案、服务商配置或自动化授权；报表按用途/成员/作业/章节归属并如实列出未知费用与阻断调用；预算 2.5 时两笔并发生成只有一笔获得预留，嵌入费用不计入生成预算；有在途预留时不能直接切换预算币种，且阻断调用不计入其他币种费用；未设置预算时生成不阻断且不伪造预留成本。
 
-`apps/api/src/chapter-import.test.ts` 使用独立工作区，8 个用例覆盖：所有者导入两章并写入 canon/`source=import`/`evaluation_id=NULL`/索引 `not_configured` 以及审计与事件；主笔可导入且复用作品与卷，卷名与已有卷不一致返回 409 `VOLUME_TITLE_MISMATCH`；同作品新增章节复用已有卷；同一作品并发导入相同章节号时串行处理，只写入一份；已配置启用的嵌入服务时导入章置为 `pending` 并写入 `index.chapter` outbox；请求内章节号重复整批拒绝且不创建工作；审阅与计费角色 403 且不留下作品；跨工作区同名作品互不冲突且不能跨区读取。旧章导入前端解析 `## 第N章 标题`，支持 UTF-8 的 `.md/.txt` 与粘贴、预览与重复校验；非 UTF-8 文件会显式报错而不是静默替换为乱码。导入章界面显示“未评估”，不会补造门禁或草稿。
+`apps/api/src/chapter-import.test.ts` 使用独立工作区，9 个用例覆盖：所有者导入两章并写入 canon/`source=import`/`evaluation_id=NULL`/索引 `not_configured` 以及审计与事件；主笔可导入且复用作品与卷，卷名与已有卷不一致返回 409 `VOLUME_TITLE_MISMATCH`；同作品新增章节复用已有卷；同一作品并发导入相同章节号时串行处理，只写入一份；已配置启用的嵌入服务时导入章置为 `pending` 并写入 `index.chapter` outbox；请求内章节号重复整批拒绝且不创建工作；审阅与计费角色 403 且不留下作品；跨工作区同名作品互不冲突且不能跨区读取；按 id 读取正典版本详情时跨工作区与不存在的 id 都是 404 `VERSION_NOT_FOUND`、非 UUID 参数 400、计费角色 403，导入版本在这一页仍如实显示 `gate_status=not_evaluated` 且 `evaluation` 为空。旧章导入前端解析 `## 第N章 标题`，支持 UTF-8 的 `.md/.txt` 与粘贴、预览与重复校验；非 UTF-8 文件会显式报错而不是静默替换为乱码。导入章界面显示“未评估”，不会补造门禁或草稿。
 
 `apps/api/src/m6-ledger.test.ts` 使用真实数据库，8 个用例覆盖：作者可创建设定草稿，审阅者只读、计费角色不可读、AI 不能写；名称与别名冲突显式失败且工作区互不可见；发布后当前版本生效并递增 `settings_version`，草稿编辑不提前改活动名称；回滚只生成新草稿而不直接改活动版本；并发编辑同一草稿只有一个成功、另一个返回 409 `LEDGER_DRAFT_CONFLICT`；归档要求先处理待发布草稿，归档后名称释放且不能再编辑；角色档案绑定作品与章节、伏笔校验回收信息且拒绝无效章节；并发写入同一别名只有一个成功、另一个返回 409 `LEDGER_NAME_CONFLICT`，别名投影只留一条。测试自建用户、工作区与条目并在结束后清理。
 
