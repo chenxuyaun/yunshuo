@@ -454,6 +454,21 @@ export interface RulesetView {
   isProduction: boolean;
 }
 
+export interface GateLedgerHintEntryView {
+  id: string;
+  kind: LedgerEntryKind;
+  name: string;
+  scope: LedgerEntryScope;
+  versionNo: number;
+}
+
+export interface GateHintView {
+  gate: 'core_entity' | 'causality';
+  terms: string[];
+  message: string;
+  entries: GateLedgerHintEntryView[];
+}
+
 export interface GateEvaluationView {
   id: string;
   chapterId: string;
@@ -462,6 +477,7 @@ export interface GateEvaluationView {
   ruleset: RulesetView;
   status: GateEvaluationResult['status'];
   results: GateEvaluationResult['results'];
+  hints: GateHintView[];
   createdAt: string;
 }
 
@@ -561,12 +577,44 @@ export interface SearchResultView {
   rrfScore: number;
 }
 
+export interface LedgerRetrievalCoverageView {
+  activeEntries: number;
+  indexedEntries: number;
+  chunks: number;
+  vectorChunks: number;
+  vectorModel: string | null;
+}
+
+export interface SearchLedgerResultView {
+  chunkId: string;
+  entryId: string;
+  kind: LedgerEntryKind;
+  name: string;
+  aliases: string[];
+  scope: LedgerEntryScope;
+  workId: string | null;
+  sourceChapterId: string | null;
+  sourceChapterNumber: number | null;
+  sourceChapterTitle: string | null;
+  versionId: string;
+  versionNo: number;
+  excerpt: string;
+  lexicalRank: number | null;
+  vectorRank: number | null;
+  lexicalScore: number | null;
+  vectorScore: number | null;
+  rrfScore: number;
+}
+
 export interface SearchResponse {
   query: string;
   mode: 'hybrid' | 'lexical';
   semanticReason: string | null;
   results: SearchResultView[];
   coverage: RetrievalCoverageView;
+  ledgerResults: SearchLedgerResultView[];
+  ledgerCoverage: LedgerRetrievalCoverageView;
+  ledgerReason: string | null;
 }
 
 export interface ReindexResponse {
@@ -744,11 +792,32 @@ export interface AiRetrievalView {
   coverage: RetrievalCoverageView | null;
 }
 
+export interface AiLedgerCitationView {
+  ref: string;
+  entryId: string;
+  kind: LedgerEntryKind;
+  name: string;
+  scope: LedgerEntryScope;
+  workId: string | null;
+  versionId: string;
+  versionNo: number;
+  chars: number;
+}
+
+export interface AiLedgerContextView {
+  status: 'ok' | 'unavailable';
+  reason: string | null;
+  citations: AiLedgerCitationView[];
+  usedCharacters: string[];
+  truncated: boolean;
+}
+
 export interface AiProposalContextView {
   promptVersion: string;
   sections: AiContextSectionView[];
   unavailable: string[];
   retrieval?: AiRetrievalView;
+  ledger?: AiLedgerContextView;
 }
 
 export interface AiProposalUsageView {
@@ -1443,6 +1512,34 @@ export interface LedgerEntryDetail extends LedgerEntrySummary {
 
 export interface LedgerEntryListResponse {
   entries: LedgerEntrySummary[];
+}
+
+export const createChapterLedgerLinkSchema = z.object({
+  entryId: z.string().uuid(),
+  note: z.string().trim().max(500, '关联备注不能超过 500 字').optional().default(''),
+});
+
+export type CreateChapterLedgerLinkInput = z.infer<typeof createChapterLedgerLinkSchema>;
+
+export interface ChapterLedgerLinkView {
+  id: string;
+  chapterId: string;
+  entryId: string;
+  kind: LedgerEntryKind;
+  name: string;
+  status: LedgerEntryStatus;
+  scope: LedgerEntryScope;
+  workId: string | null;
+  versionId: string | null;
+  versionNo: number | null;
+  note: string;
+  createdByName: string | null;
+  createdAt: string;
+}
+
+export interface ChapterLedgerLinksResponse {
+  links: ChapterLedgerLinkView[];
+  note: string;
 }
 
 export interface LedgerEntryVersionListResponse {

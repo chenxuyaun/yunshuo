@@ -124,7 +124,8 @@ export async function loadEvaluation(
 ): Promise<EvaluationWithRules | null> {
   const rows = await exec<EvaluationWithRules[]>`
     SELECT
-      e.id, e.chapter_id, e.content_hash, e.context_hash, e.status, e.results, e.created_at,
+      e.id, e.chapter_id, e.content_hash, e.context_hash, e.status, e.results, e.hints,
+      e.created_at,
       r.id AS ruleset_id, r.key AS ruleset_key, r.version AS ruleset_version,
       r.description AS ruleset_description, r.is_production AS ruleset_is_production,
       r.rules

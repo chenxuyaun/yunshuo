@@ -5,6 +5,7 @@ import type {
 } from '@yunshuo/domain';
 import type {
   GateEvaluationView,
+  GateHintView,
   IndexStatusView,
   LeaseView,
   RulesetView,
@@ -44,6 +45,7 @@ export interface EvaluationRow {
   context_hash: string;
   status: GateEvaluationResult['status'];
   results: GateEvaluationResult['results'];
+  hints?: GateHintView[] | null;
   created_at: Date | string;
   ruleset_id: string;
   ruleset_key: string;
@@ -67,6 +69,7 @@ export function mapEvaluation(row: EvaluationRow): GateEvaluationView {
     },
     status: row.status,
     results: row.results,
+    hints: row.hints ?? [],
     createdAt: iso(row.created_at),
   };
 }

@@ -30,11 +30,15 @@ import {
 } from './provider-service.js';
 import { searchCanon } from './search-service.js';
 import {
+  loadAiLedgerContext,
+  type AiLedgerContextBundle,
+} from './ledger-context-service.js';
+import {
   MIN_GENERATION_COMPLETION_TOKENS,
   reserveGenerationCall,
 } from './billing-service.js';
 
-const PROMPT_VERSION = 'm4-v1';
+const PROMPT_VERSION = 'm6-v1';
 const AI_TIMEOUT_MS = 120_000;
 const MAX_OUTPUT_CHARS = 60_000;
 const PREVIOUS_TAIL_CHARS = 1200;
@@ -304,6 +308,7 @@ export function buildProposalContext(
   previous: PreviousChapterRow | null,
   input: CreateProposalInput,
   retrieval: ProposalRetrievalContext | null = null,
+  ledger: AiLedgerContextBundle | null = null,
 ): BuiltProposalContext {
   const plan = takeText('plan', '本章计划', planText(chapter), PLAN_LIMIT, 'head');
   const instruction = takeText('instruction', '作者补充要求', input.instruction, 2000, 'head');
@@ -362,8 +367,30 @@ export function buildProposalContext(
     retrievalText = section.used;
   }
 
-  unavailable.push('设定集与角色档案（M6 已建库，AI 上下文尚未接入）');
-  unavailable.push('伏笔台账（M6-3 已建库，AI 上下文尚未接入）');
+  let ledgerText = '';
+  if (ledger) {
+    for (const section of ledger.sections) {
+      sections.push({
+        view: {
+          key: section.key,
+          label: section.label,
+          chars: section.chars,
+          usedChars: section.text.length,
+          truncated: section.truncated,
+        },
+        used: section.text,
+      });
+    }
+    ledgerText = ledger.sections
+      .map((section) => `【${section.label}】\n${section.text}`)
+      .join('\n\n');
+    if (ledger.view.status === 'unavailable') {
+      unavailable.push(`设定、角色与伏笔（${ledger.view.reason ?? '不可用'}）`);
+    }
+  } else {
+    unavailable.push('设定、角色与伏笔（本次未加载账本上下文）');
+  }
+
   if (retrieval && retrieval.view.status === 'unavailable') {
     unavailable.push(`正典检索（${retrieval.view.reason ?? '不可用'}）`);
   }
@@ -392,6 +419,9 @@ export function buildProposalContext(
     retrievalText
       ? `【正典检索片段（引用编号 R1 起；可用于保持连续性，不要照抄）】\n${retrievalText}`
       : '',
+    ledgerText
+      ? `【设定、角色与伏笔（引用编号 L1 起；以账本为准，不要照抄）】\n${ledgerText}`
+      : '',
     previousText ? `【上一章结尾】\n${previousText}` : '',
     draftText ? `【当前草稿结尾】\n${draftText}` : '',
     draftLine,
@@ -406,6 +436,7 @@ export function buildProposalContext(
       sections: sections.map((section) => section.view),
       unavailable,
       ...(retrieval ? { retrieval: retrieval.view } : {}),
+      ...(ledger ? { ledger: ledger.view } : {}),
     },
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
@@ -470,12 +501,34 @@ export async function prepareProposal(
     }
   }
 
-  const [previous, routing, retrieval] = await Promise.all([
+  const ledgerPromise: Promise<AiLedgerContextBundle> = loadAiLedgerContext({
+    workspaceId: auth.workspace.id,
+    workId: chapter.work_id,
+    currentChapterNumber: chapter.number,
+  }).catch((error) => {
+    console.warn(
+      `[ai] 章节 ${chapterId} 账本上下文加载失败，生成继续：${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    return {
+      view: {
+        status: 'unavailable' as const,
+        reason: '账本上下文加载失败',
+        citations: [],
+        usedCharacters: [],
+        truncated: false,
+      },
+      sections: [],
+    };
+  });
+  const [previous, routing, retrieval, ledger] = await Promise.all([
     loadPreviousCanon(auth.workspace.id, chapter),
     loadGenerationProviders(auth.workspace.id),
     loadProposalRetrieval(auth.workspace.id, chapter, input.instruction),
+    ledgerPromise,
   ]);
-  const built = buildProposalContext(chapter, draft, previous, input, retrieval);
+  const built = buildProposalContext(chapter, draft, previous, input, retrieval, ledger);
   const candidates = providerFilter
     ? routing.providers.filter(providerFilter)
     : routing.providers;

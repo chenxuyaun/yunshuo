@@ -1324,6 +1324,32 @@ dt {
   font-size: 9.5px;
 }
 
+.retrieval-ledger-coverage {
+  margin-top: 0;
+  padding-top: 5px;
+  border-top: 1px dashed var(--line);
+}
+
+.retrieval-ledger-block {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+}
+
+.retrieval-ledger-title {
+  margin: 0;
+}
+
+.retrieval-ledger-item {
+  cursor: default;
+  border-left-color: var(--ink-faint);
+}
+
+.retrieval-ledger-item:hover {
+  border-left-color: var(--ink-faint);
+  background: rgba(255, 252, 245, 0.6);
+}
+
 .retrieval-hint {
   margin-top: 9px;
   color: var(--ink-faint);

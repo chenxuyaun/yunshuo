@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
   commitSchema,
+  createChapterLedgerLinkSchema,
   createWaiverSchema,
   decideWaiverSchema,
   importChaptersSchema,
@@ -26,6 +27,11 @@ import {
   unstageDraft,
 } from '../services/chapter-service.js';
 import { importChapters } from '../services/chapter-import-service.js';
+import {
+  createChapterLedgerLink,
+  deleteChapterLedgerLink,
+  listChapterLedgerLinks,
+} from '../services/chapter-ledger-link-service.js';
 import { commitChapter } from '../services/commit-service.js';
 import { rollbackChapter } from '../services/rollback-service.js';
 import { decideWaiver, requestWaiver } from '../services/waiver-service.js';
@@ -33,6 +39,7 @@ import { decideWaiver, requestWaiver } from '../services/waiver-service.js';
 const idParams = z.object({ id: z.string().uuid() });
 const versionParams = z.object({ versionId: z.string().uuid() });
 const waiverParams = z.object({ id: z.string().uuid(), waiverId: z.string().uuid() });
+const ledgerLinkParams = z.object({ id: z.string().uuid(), linkId: z.string().uuid() });
 
 async function chapterAuth(request: FastifyRequest): Promise<AuthContext> {
   const auth = await requireAuth(request);
@@ -144,6 +151,25 @@ export async function chapterRoutes(app: FastifyInstance): Promise<void> {
     const { id } = idParams.parse(request.params);
     const body = rollbackSchema.parse(request.body);
     return rollbackChapter(auth, id, body);
+  });
+
+  app.get('/api/chapters/:id/ledger-links', async (request) => {
+    const auth = await chapterAuth(request);
+    const { id } = idParams.parse(request.params);
+    return listChapterLedgerLinks(auth, id);
+  });
+
+  app.post('/api/chapters/:id/ledger-links', async (request) => {
+    const auth = await chapterAuth(request);
+    const { id } = idParams.parse(request.params);
+    const body = createChapterLedgerLinkSchema.parse(request.body);
+    return createChapterLedgerLink(auth, id, body);
+  });
+
+  app.delete('/api/chapters/:id/ledger-links/:linkId', async (request) => {
+    const auth = await chapterAuth(request);
+    const { id, linkId } = ledgerLinkParams.parse(request.params);
+    return deleteChapterLedgerLink(auth, id, linkId);
   });
 
   app.post('/api/chapters/:id/waivers', async (request) => {

@@ -30,6 +30,7 @@ import { ChapterStatusBadge } from './Badge.js';
 import { GatePanel } from './GatePanel.js';
 import { AuditPanel } from './AuditPanel.js';
 import { CharacterContextCard } from './CharacterContextCard.js';
+import { ChapterLedgerLinksCard } from './ChapterLedgerLinksCard.js';
 import { ForeshadowingReminderCard } from './ForeshadowingReminderCard.js';
 import { VersionList } from './VersionList.js';
 import { IndexStatusCard } from './IndexStatusCard.js';
@@ -810,6 +811,11 @@ export function ChapterStudio({ me, chapter, onOpenVersion, onOpenChapter }: Pro
           />
           <CharacterContextCard chapterId={chapter.id} />
           <ForeshadowingReminderCard chapterId={chapter.id} />
+          <ChapterLedgerLinksCard
+            chapterId={chapter.id}
+            workId={chapter.workId}
+            canEdit={roleCanWrite}
+          />
           <IndexStatusCard
             chapterId={chapter.id}
             role={me.role}

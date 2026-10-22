@@ -8,6 +8,7 @@ import type {
 } from '@yunshuo/contracts';
 import { ApiError, listAiProposals, streamAiProposal } from '../api.js';
 import { formatDateTime } from '../format.js';
+import { LEDGER_KIND_LABELS, LEDGER_SCOPE_LABELS } from '../ledger.js';
 
 interface Props {
   chapter: ChapterDetail;
@@ -400,6 +401,39 @@ export function AiProposalPanel({ chapter, content, dirty, canEditNow, onAdopt }
             <p className="ai-context-missing">
               未使用：{meta.context.unavailable.join('；')}
             </p>
+          ) : null}
+
+          {meta.context.ledger ? (
+            <div className="ai-ledger">
+              <p className="ai-context-title">
+                设定、角色与伏笔 ·{' '}
+                {meta.context.ledger.status === 'ok' ? '已注入' : '不可用'} ·{' '}
+                {meta.context.ledger.citations.length} 条引用
+                {meta.context.ledger.truncated ? ' · 已按预算截断' : ''}
+              </p>
+              {meta.context.ledger.reason ? (
+                <p className="ai-context-missing">{meta.context.ledger.reason}</p>
+              ) : null}
+              {meta.context.ledger.usedCharacters.length > 0 ? (
+                <p className="ai-context-missing">
+                  已使用角色：{meta.context.ledger.usedCharacters.join('、')}
+                </p>
+              ) : null}
+              {meta.context.ledger.citations.length > 0 ? (
+                <ul className="ai-retrieval-list">
+                  {meta.context.ledger.citations.map((citation) => (
+                    <li key={citation.ref}>
+                      <span className="ai-retrieval-ref">[{citation.ref}]</span>
+                      <span>
+                        {LEDGER_KIND_LABELS[citation.kind]} · {citation.name} · v
+                        {citation.versionNo} · {LEDGER_SCOPE_LABELS[citation.scope]} ·{' '}
+                        {citation.chars} 字
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
           ) : null}
 
           {meta.context.retrieval ? (

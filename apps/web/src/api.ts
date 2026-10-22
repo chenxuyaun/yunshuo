@@ -20,6 +20,7 @@ import type {
   BillingProviderPriceView,
   BillingReportResponse,
   ChapterDetail,
+  ChapterLedgerLinksResponse,
   ChapterListItem,
   ChangePasswordResponse,
   CommitResponse,
@@ -766,6 +767,38 @@ export function listLedgerEntries(
 
 export function getLedgerEntry(entryId: string): Promise<LedgerEntryDetail> {
   return request<LedgerEntryDetail>(`/api/ledger/entries/${entryId}`);
+}
+
+export function listChapterLedgerLinks(
+  chapterId: string,
+): Promise<ChapterLedgerLinksResponse> {
+  return request<ChapterLedgerLinksResponse>(
+    `/api/chapters/${chapterId}/ledger-links`,
+  );
+}
+
+export function createChapterLedgerLink(
+  chapterId: string,
+  entryId: string,
+  note = '',
+): Promise<ChapterLedgerLinksResponse> {
+  return request<ChapterLedgerLinksResponse>(
+    `/api/chapters/${chapterId}/ledger-links`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ entryId, note }),
+    },
+  );
+}
+
+export function deleteChapterLedgerLink(
+  chapterId: string,
+  linkId: string,
+): Promise<ChapterLedgerLinksResponse> {
+  return request<ChapterLedgerLinksResponse>(
+    `/api/chapters/${chapterId}/ledger-links/${linkId}`,
+    { method: 'DELETE' },
+  );
 }
 
 export function listLedgerVersions(
