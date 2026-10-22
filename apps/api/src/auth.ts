@@ -224,3 +224,13 @@ export function assertCanWrite(role: Role): void {
     throw new AppError(403, 'FORBIDDEN', '当前角色只能阅读或审阅，不能写入');
   }
 }
+
+export function assertCanReadLedger(role: Role): void {
+  assertCanReadManuscript(role);
+}
+
+export function assertCanWriteLedger(role: Role): void {
+  if (role !== 'owner' && role !== 'lead' && role !== 'author') {
+    throw forbidden('只有所有者、主笔与作者可以编辑设定与连续性账本');
+  }
+}

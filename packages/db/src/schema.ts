@@ -545,3 +545,33 @@ export const automationJobChapters = pgTable(
   },
   (table) => [primaryKey({ columns: [table.jobId, table.chapterId] })],
 );
+
+export const ledgerEntries = pgTable('ledger_entries', {
+  id: uuid('id').primaryKey(),
+  workspaceId: uuid('workspace_id').notNull(),
+  workId: uuid('work_id'),
+  kind: text('kind').notNull(),
+  scope: text('scope').notNull(),
+  name: text('name').notNull(),
+  aliases: text('aliases').array().notNull().default([]),
+  summary: text('summary').notNull().default(''),
+  status: text('status').notNull().default('draft'),
+  sourceChapterId: uuid('source_chapter_id'),
+  currentVersionId: uuid('current_version_id'),
+  draftVersionId: uuid('draft_version_id'),
+  createdBy: uuid('created_by'),
+  updatedBy: uuid('updated_by'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const ledgerEntryVersions = pgTable('ledger_entry_versions', {
+  id: uuid('id').primaryKey(),
+  entryId: uuid('entry_id').notNull(),
+  workspaceId: uuid('workspace_id').notNull(),
+  versionNo: integer('version_no').notNull(),
+  snapshot: jsonb('snapshot').$type<Record<string, unknown>>().notNull(),
+  changeSummary: text('change_summary').notNull().default(''),
+  createdBy: uuid('created_by'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});

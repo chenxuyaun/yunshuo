@@ -33,6 +33,13 @@ import type {
   InvitePreviewResponse,
   InviteView,
   LeaseResponse,
+  LedgerEntryDetail,
+  LedgerEntryKind,
+  LedgerEntryListResponse,
+  LedgerEntryStatus,
+  LedgerEntryVersionListResponse,
+  LedgerCharacterContext,
+  LedgerCharacterTimeline,
   MemberView,
   MeResponse,
   ModelDiscoveryResponse,
@@ -44,16 +51,21 @@ import type {
   ProviderBillListResponse,
   ProviderBillReconciliationResponse,
   ProviderBillView,
+  PublishLedgerEntryInput,
   ReindexResponse,
+  RollbackLedgerEntryInput,
   RollbackResponse,
   SaveDraftResponse,
   SearchResponse,
   StageResponse,
   StartRevisionResponse,
+  UpdateLedgerDraftInput,
   VersionDetail,
   WaiverGateKey,
   WaiverView,
   WorkspaceMembershipsResponse,
+  ArchiveLedgerEntryInput,
+  CreateLedgerEntryInput,
 } from '@yunshuo/contracts';
 import type { HumanRole, Role } from '@yunshuo/domain';
 import type { PriceCurrency } from '@yunshuo/contracts';
@@ -724,5 +736,99 @@ export function reviewProviderBill(
   return request<ProviderBillView>(`/api/billing/bills/${billId}`, {
     method: 'PATCH',
     body: JSON.stringify(payload),
+  });
+}
+
+export interface LedgerListParams {
+  kind?: LedgerEntryKind;
+  status?: LedgerEntryStatus;
+  workId?: string;
+  q?: string;
+  limit?: number;
+}
+
+export function listLedgerEntries(
+  params: LedgerListParams = {},
+): Promise<LedgerEntryListResponse> {
+  const search = new URLSearchParams();
+  if (params.kind) search.set('kind', params.kind);
+  if (params.status) search.set('status', params.status);
+  if (params.workId) search.set('workId', params.workId);
+  if (params.q) search.set('q', params.q);
+  if (params.limit) search.set('limit', String(params.limit));
+  const suffix = search.toString();
+  return request<LedgerEntryListResponse>(
+    `/api/ledger/entries${suffix ? `?${suffix}` : ''}`,
+  );
+}
+
+export function getLedgerEntry(entryId: string): Promise<LedgerEntryDetail> {
+  return request<LedgerEntryDetail>(`/api/ledger/entries/${entryId}`);
+}
+
+export function listLedgerVersions(
+  entryId: string,
+): Promise<LedgerEntryVersionListResponse> {
+  return request<LedgerEntryVersionListResponse>(
+    `/api/ledger/entries/${entryId}/versions`,
+  );
+}
+
+export function getCharacterTimeline(entryId: string): Promise<LedgerCharacterTimeline> {
+  return request<LedgerCharacterTimeline>(`/api/ledger/entries/${entryId}/timeline`);
+}
+
+export function getCharacterContext(chapterId: string): Promise<LedgerCharacterContext> {
+  return request<LedgerCharacterContext>(
+    `/api/ledger/character-context?chapterId=${encodeURIComponent(chapterId)}`,
+  );
+}
+
+export function createLedgerEntry(
+  input: CreateLedgerEntryInput,
+): Promise<LedgerEntryDetail> {
+  return request<LedgerEntryDetail>('/api/ledger/entries', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function saveLedgerDraft(
+  entryId: string,
+  input: UpdateLedgerDraftInput,
+): Promise<LedgerEntryDetail> {
+  return request<LedgerEntryDetail>(`/api/ledger/entries/${entryId}/draft`, {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
+}
+
+export function publishLedgerEntry(
+  entryId: string,
+  input: PublishLedgerEntryInput,
+): Promise<LedgerEntryDetail> {
+  return request<LedgerEntryDetail>(`/api/ledger/entries/${entryId}/publish`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function archiveLedgerEntry(
+  entryId: string,
+  input: ArchiveLedgerEntryInput,
+): Promise<LedgerEntryDetail> {
+  return request<LedgerEntryDetail>(`/api/ledger/entries/${entryId}/archive`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function rollbackLedgerEntry(
+  entryId: string,
+  input: RollbackLedgerEntryInput,
+): Promise<LedgerEntryDetail> {
+  return request<LedgerEntryDetail>(`/api/ledger/entries/${entryId}/rollback`, {
+    method: 'POST',
+    body: JSON.stringify(input),
   });
 }

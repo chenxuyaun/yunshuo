@@ -16,6 +16,7 @@ interface Props {
   onOpenTeam: () => void;
   onOpenBilling: () => void;
   onOpenImport: () => void;
+  onOpenLedger?: () => void;
 }
 
 export function WorkspaceHeader({
@@ -31,6 +32,7 @@ export function WorkspaceHeader({
   onOpenTeam,
   onOpenBilling,
   onOpenImport,
+  onOpenLedger,
 }: Props) {
   const [switching, setSwitching] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -111,6 +113,16 @@ export function WorkspaceHeader({
               ))}
             </select>
           </label>
+        ) : null}
+        {onOpenLedger && me.role !== 'billing' && me.role !== 'ai' ? (
+          <button
+            type="button"
+            className="button button-quiet button-small"
+            title="查看与维护设定条目、版本历史和差异"
+            onClick={onOpenLedger}
+          >
+            设定库
+          </button>
         ) : null}
         {me.role === 'owner' || me.role === 'lead' || me.role === 'author' ? (
           <button

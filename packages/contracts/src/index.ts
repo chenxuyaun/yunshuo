@@ -1153,3 +1153,325 @@ export interface ProviderBillReconciliationResponse {
   models: ProviderBillModelComparison[];
   note: string;
 }
+
+export const LEDGER_ENTRY_KINDS = ['setting', 'character', 'foreshadowing'] as const;
+
+export type LedgerEntryKind = (typeof LEDGER_ENTRY_KINDS)[number];
+
+export const ledgerEntryKindSchema = z.enum(LEDGER_ENTRY_KINDS);
+
+export const LEDGER_ENTRY_STATUSES = ['draft', 'active', 'archived'] as const;
+
+export type LedgerEntryStatus = (typeof LEDGER_ENTRY_STATUSES)[number];
+
+export const ledgerEntryStatusSchema = z.enum(LEDGER_ENTRY_STATUSES);
+
+export const LEDGER_ENTRY_SCOPES = ['workspace', 'work'] as const;
+
+export type LedgerEntryScope = (typeof LEDGER_ENTRY_SCOPES)[number];
+
+export const LEDGER_SETTING_CATEGORIES = [
+  'world',
+  'location',
+  'faction',
+  'rule',
+  'item',
+  'other',
+] as const;
+
+export type LedgerSettingCategory = (typeof LEDGER_SETTING_CATEGORIES)[number];
+
+export const LEDGER_VERIFICATION_STATES = [
+  'verified',
+  'unverified',
+  'to_design',
+  'deprecated',
+] as const;
+
+export type LedgerVerificationState = (typeof LEDGER_VERIFICATION_STATES)[number];
+
+export const LEDGER_CHARACTER_LIFE_STATES = ['alive', 'dead', 'unknown'] as const;
+
+export type LedgerCharacterLifeState = (typeof LEDGER_CHARACTER_LIFE_STATES)[number];
+
+export const LEDGER_FORESHADOWING_STATES = [
+  'planted',
+  'reinforced',
+  'paid_off',
+  'abandoned',
+] as const;
+
+export type LedgerForeshadowingState = (typeof LEDGER_FORESHADOWING_STATES)[number];
+
+export const LEDGER_FORESHADOWING_IMPORTANCE = ['low', 'medium', 'high'] as const;
+
+export type LedgerForeshadowingImportance =
+  (typeof LEDGER_FORESHADOWING_IMPORTANCE)[number];
+
+const ledgerNameSchema = z.string().trim().min(1, '请填写名称').max(120, '名称不能超过 120 字');
+const ledgerAliasSchema = z.string().trim().min(1).max(120, '别名不能超过 120 字');
+const ledgerAliasesSchema = z.array(ledgerAliasSchema).max(20, '别名最多 20 个').default([]);
+
+export const ledgerSettingPayloadSchema = z.object({
+  category: z.enum(LEDGER_SETTING_CATEGORIES),
+  details: z.string().trim().max(20_000, '详细说明不能超过 20000 字').default(''),
+  tags: z.array(z.string().trim().min(1).max(40)).max(20, '标签最多 20 个').default([]),
+  verification: z.enum(LEDGER_VERIFICATION_STATES).default('unverified'),
+});
+
+export const ledgerCharacterStateSchema = z.object({
+  asOfChapterId: z.string().uuid(),
+  life: z.enum(LEDGER_CHARACTER_LIFE_STATES).default('unknown'),
+  location: z.string().trim().max(200).default(''),
+  knowledge: z.string().trim().max(5000).default(''),
+  possessions: z.string().trim().max(2000).default(''),
+  relationshipChanges: z.string().trim().max(2000).default(''),
+});
+
+export const ledgerCharacterPayloadSchema = z.object({
+  role: z.string().trim().max(80).default(''),
+  appearance: z.string().trim().max(5000).default(''),
+  personality: z.string().trim().max(5000).default(''),
+  goals: z.string().trim().max(5000).default(''),
+  faction: z.string().trim().max(200).default(''),
+  abilities: z.string().trim().max(5000).default(''),
+  speechStyle: z.string().trim().max(2000).default(''),
+  relationships: z
+    .array(
+      z.object({
+        name: z.string().trim().min(1).max(200),
+        relation: z.string().trim().min(1).max(200),
+        notes: z.string().trim().max(1000).default(''),
+      }),
+    )
+    .max(50, '关系最多 50 条')
+    .default([]),
+  states: z.array(ledgerCharacterStateSchema).max(200, '状态时间线最多 200 条').default([]),
+});
+
+export const ledgerForeshadowingPayloadSchema = z
+  .object({
+    seedChapterId: z.string().uuid(),
+    payoffChapterMin: z.number().int().min(1).max(99_999).nullable().default(null),
+    payoffChapterMax: z.number().int().min(1).max(99_999).nullable().default(null),
+    importance: z.enum(LEDGER_FORESHADOWING_IMPORTANCE).default('medium'),
+    state: z.enum(LEDGER_FORESHADOWING_STATES).default('planted'),
+    payoffChapterId: z.string().uuid().nullable().default(null),
+    note: z.string().trim().max(10_000, '伏笔说明不能超过 10000 字').default(''),
+  })
+  .refine(
+    (value) =>
+      value.payoffChapterMin === null ||
+      value.payoffChapterMax === null ||
+      value.payoffChapterMin <= value.payoffChapterMax,
+    {
+      message: '计划回收起始章不能大于结束章',
+      path: ['payoffChapterMin'],
+    },
+  )
+  .refine((value) => value.state !== 'paid_off' || Boolean(value.payoffChapterId), {
+    message: '已回收伏笔必须填写回收章节',
+    path: ['payoffChapterId'],
+  });
+
+export type LedgerSettingPayload = z.infer<typeof ledgerSettingPayloadSchema>;
+export type LedgerCharacterPayload = z.infer<typeof ledgerCharacterPayloadSchema>;
+export type LedgerForeshadowingPayload = z.infer<typeof ledgerForeshadowingPayloadSchema>;
+export type LedgerEntryPayload =
+  | LedgerSettingPayload
+  | LedgerCharacterPayload
+  | LedgerForeshadowingPayload;
+
+export interface LedgerEntrySnapshot {
+  name: string;
+  aliases: string[];
+  summary: string;
+  sourceChapterId: string | null;
+  payload: LedgerEntryPayload;
+}
+
+const ledgerEntryBaseShape = {
+  name: ledgerNameSchema,
+  aliases: ledgerAliasesSchema,
+  summary: z.string().trim().max(2000, '摘要不能超过 2000 字').default(''),
+  sourceChapterId: z.string().uuid().nullable().optional(),
+};
+
+export const createLedgerEntrySchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('setting'),
+    workId: z.string().uuid().nullable().optional(),
+    payload: ledgerSettingPayloadSchema,
+    ...ledgerEntryBaseShape,
+  }),
+  z.object({
+    kind: z.literal('character'),
+    workId: z.string().uuid(),
+    payload: ledgerCharacterPayloadSchema,
+    ...ledgerEntryBaseShape,
+  }),
+  z.object({
+    kind: z.literal('foreshadowing'),
+    workId: z.string().uuid(),
+    payload: ledgerForeshadowingPayloadSchema,
+    ...ledgerEntryBaseShape,
+  }),
+]);
+
+export type CreateLedgerEntryInput = z.infer<typeof createLedgerEntrySchema>;
+
+export const updateLedgerDraftSchema = z
+  .object({
+    expectedDraftVersionId: z.string().uuid().nullable(),
+    name: ledgerNameSchema.optional(),
+    aliases: ledgerAliasesSchema.optional(),
+    summary: z.string().trim().max(2000, '摘要不能超过 2000 字').optional(),
+    sourceChapterId: z.string().uuid().nullable().optional(),
+    payload: z.unknown().optional(),
+    changeSummary: z.string().trim().max(500).optional().default(''),
+  })
+  .refine(
+    (value) =>
+      value.name !== undefined ||
+      value.aliases !== undefined ||
+      value.summary !== undefined ||
+      value.sourceChapterId !== undefined ||
+      value.payload !== undefined,
+    '至少提供一个修改字段',
+  );
+
+export type UpdateLedgerDraftInput = z.infer<typeof updateLedgerDraftSchema>;
+
+export const publishLedgerEntrySchema = z.object({
+  expectedDraftVersionId: z.string().uuid(),
+  changeSummary: z.string().trim().max(500).optional().default(''),
+});
+
+export type PublishLedgerEntryInput = z.infer<typeof publishLedgerEntrySchema>;
+
+export const archiveLedgerEntrySchema = z.object({
+  reason: z.string().trim().max(1000).optional().default(''),
+  discardDraft: z.boolean().optional().default(false),
+});
+
+export type ArchiveLedgerEntryInput = z.infer<typeof archiveLedgerEntrySchema>;
+
+export const rollbackLedgerEntrySchema = z.object({
+  targetVersionNo: z.number().int().min(1),
+  expectedDraftVersionId: z.string().uuid().nullable(),
+  reason: z.string().trim().min(4, '请填写至少 4 个字的回滚原因').max(1000),
+});
+
+export type RollbackLedgerEntryInput = z.infer<typeof rollbackLedgerEntrySchema>;
+
+export const listLedgerEntriesQuerySchema = z.object({
+  kind: ledgerEntryKindSchema.optional(),
+  status: ledgerEntryStatusSchema.optional(),
+  workId: z.string().uuid().optional(),
+  q: z.string().trim().max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional().default(100),
+});
+
+export type ListLedgerEntriesQuery = z.infer<typeof listLedgerEntriesQuerySchema>;
+
+export interface LedgerEntryVersionView {
+  id: string;
+  versionNo: number;
+  snapshot: LedgerEntrySnapshot;
+  changeSummary: string;
+  createdBy: UserSummary | null;
+  createdAt: string;
+}
+
+export interface LedgerEntrySummary {
+  id: string;
+  workId: string | null;
+  kind: LedgerEntryKind;
+  scope: LedgerEntryScope;
+  name: string;
+  aliases: string[];
+  summary: string;
+  status: LedgerEntryStatus;
+  sourceChapterId: string | null;
+  currentVersionNo: number | null;
+  draftVersionNo: number | null;
+  updatedAt: string;
+}
+
+export interface LedgerEntryDetail extends LedgerEntrySummary {
+  currentVersion: LedgerEntryVersionView | null;
+  draftVersion: LedgerEntryVersionView | null;
+  createdBy: UserSummary | null;
+  updatedBy: UserSummary | null;
+  createdAt: string;
+}
+
+export interface LedgerEntryListResponse {
+  entries: LedgerEntrySummary[];
+}
+
+export interface LedgerEntryVersionListResponse {
+  versions: LedgerEntryVersionView[];
+}
+
+export interface LedgerChapterRef {
+  id: string;
+  number: number;
+  title: string;
+}
+
+export interface LedgerCharacterStateEntry {
+  chapter: LedgerChapterRef;
+  life: LedgerCharacterLifeState;
+  location: string;
+  knowledge: string;
+  possessions: string;
+  relationshipChanges: string;
+}
+
+export interface LedgerCharacterAppearance {
+  chapter: LedgerChapterRef;
+  matches: number;
+}
+
+export type LedgerCharacterWarningCode =
+  | 'dead_revived'
+  | 'dead_appears_later'
+  | 'relationship_conflict';
+
+export interface LedgerCharacterWarning {
+  code: LedgerCharacterWarningCode;
+  severity: 'warning';
+  message: string;
+  chapterId: string | null;
+}
+
+export interface LedgerCharacterTimeline {
+  entryId: string;
+  workId: string;
+  name: string;
+  aliases: string[];
+  versionNo: number;
+  states: LedgerCharacterStateEntry[];
+  appearances: LedgerCharacterAppearance[];
+  firstAppearance: LedgerChapterRef | null;
+  latestAppearance: LedgerChapterRef | null;
+  warnings: LedgerCharacterWarning[];
+  scanScope: 'canon_current';
+}
+
+export interface LedgerCharacterContextItem {
+  id: string;
+  name: string;
+  state: LedgerCharacterStateEntry;
+  stale: boolean;
+}
+
+export interface LedgerCharacterContext {
+  chapterId: string;
+  chapter: LedgerChapterRef;
+  asOfChapter: LedgerChapterRef | null;
+  characters: LedgerCharacterContextItem[];
+  omittedCharacters: number;
+  note: string;
+}

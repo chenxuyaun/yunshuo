@@ -13,6 +13,7 @@ import { chapterRoutes } from './routes/chapters.js';
 import { healthRoutes } from './routes/health.js';
 import { identityRoutes } from './routes/identity.js';
 import { indexRoutes } from './routes/index.js';
+import { ledgerRoutes } from './routes/ledger.js';
 import { modelProviderRoutes } from './routes/model-providers.js';
 import { searchRoutes } from './routes/search.js';
 
@@ -86,6 +87,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(identityRoutes);
   await app.register(chapterRoutes);
   await app.register(indexRoutes);
+  await app.register(ledgerRoutes);
   await app.register(searchRoutes);
   await app.register(modelProviderRoutes);
   await app.register(aiRoutes);
