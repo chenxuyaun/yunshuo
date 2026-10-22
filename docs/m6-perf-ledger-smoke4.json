@@ -1,0 +1,726 @@
+{
+  "generatedAt": "2026-10-22T19:31:47.836Z",
+  "base": "http://127.0.0.1:3101",
+  "database": "yunshuo_test",
+  "runId": "fa9935ad",
+  "runLabel": "ledger-smoke4",
+  "scenario": "千章规模账本索引与检索：导入 4 章 × 600 字 + 发布 7 条账本条目，真实 worker 分别排空正典与账本投影，再做词法与混合检索（账本通道单独计数）",
+  "workTitle": "账本索引压测作品 fa9935ad",
+  "cleanupWindowStart": "2026-10-22 19:31:08.234058+00",
+  "config": {
+    "chapterTarget": 4,
+    "charsPerChapter": 600,
+    "entryTarget": 8,
+    "entryMix": {
+      "setting": 4,
+      "character": 2,
+      "foreshadowing": 2,
+      "workScopedSettings": 1
+    },
+    "importBatchSize": 4,
+    "pollMs": 3000,
+    "timeoutMs": 240000,
+    "embedBaseUrl": "http://127.0.0.1:11434/v1",
+    "embedModel": "bge-m3:latest",
+    "repeatsPerQuery": 3,
+    "automationRunner": "关闭（AUTOMATION_RUNNER=0，独立实例指向 yunshuo_test）"
+  },
+  "caveats": [
+    "合成正文与合成条目：同一组 8 句 filler 循环拼接，条目字段也从 filler 派生，检索命中不具备语义难度。",
+    "条目数量是按\"千章作品的上限\"构造的，不代表真实作品的账本规模；名称/别名/章节绑定按序号散布。",
+    "正典与账本本轮用同一个服务商同一个模型（同维度），检索只发一次查询向量、两个通道共用；模型/维度不同才走双查询向量那条分支，本脚本没有覆盖它。",
+    "实例形状与单实例一致：压测前只有 1 个连接最近在领任务，且各阶段采样里同时在处理的任务数都没超过单次领用上限（正典 4 / 账本 5，上限 10），所以本轮速率可按单 worker 串行读；小样本只用于验证脚本与拓扑探针，不作为规模结论。",
+    "嵌入服务为本机模型，输入价填 0，成本数字不代表任何付费服务商。",
+    "本轮没有并发读写混合（发布与索引串行），没有多工作区，没有 Studio 容器内测量，也没有做账本检索质量评估。"
+  ],
+  "baselineCounts": {
+    "works": 1,
+    "chapters": 2,
+    "canon_versions": 1,
+    "canon_current": 1,
+    "canon_chunks": 0,
+    "chunk_embeddings": 0,
+    "index_status": 1,
+    "ledger_entries": 0,
+    "ledger_entry_versions": 0,
+    "ledger_entry_aliases": 0,
+    "ledger_chunks": 0,
+    "ledger_chunk_embeddings": 0,
+    "ledger_index_status": 0,
+    "chapter_ledger_links": 0,
+    "chapter_metadata": 1,
+    "outbox": 0,
+    "model_calls": 0,
+    "providers": 0,
+    "sessions": 0,
+    "events": 3,
+    "audit": 119
+  },
+  "workspaceCountersBefore": {
+    "settingsVersion": 1,
+    "ledgerVersion": 23
+  },
+  "embedServiceProbe": {
+    "reachable": true,
+    "modelSeenInList": true
+  },
+  "import": {
+    "batches": [
+      {
+        "chapterCount": 4,
+        "importMs": 51,
+        "requestBodyBytes": 7558,
+        "storedWordCount": 2400
+      }
+    ],
+    "totalChapters": 4,
+    "totalImportMs": 51
+  },
+  "canonDrain": {
+    "fullyDrained": true,
+    "timedOut": false,
+    "elapsedMs": 12190,
+    "chaptersPerMinute": 19.69,
+    "samples": [
+      {
+        "elapsedMs": 0,
+        "elapsedSec": 0,
+        "indexStatus": "indexing=1,pending=3",
+        "outbox": "processing=4",
+        "backends": 2,
+        "byLastQuery": "other=2",
+        "progress": "canon_chunks=0",
+        "workerRssMb": null,
+        "apiRssMb": null
+      },
+      {
+        "elapsedMs": 3810,
+        "elapsedSec": 4,
+        "indexStatus": "indexing=1,pending=3",
+        "outbox": "processing=4",
+        "backends": 2,
+        "byLastQuery": "other=2",
+        "progress": "canon_chunks=2",
+        "workerRssMb": null,
+        "apiRssMb": null
+      },
+      {
+        "elapsedMs": 8018,
+        "elapsedSec": 8,
+        "indexStatus": "indexing=1,pending=1,ready=2",
+        "outbox": "processed=2,processing=2",
+        "backends": 2,
+        "byLastQuery": "other=2",
+        "progress": "canon_chunks=6",
+        "workerRssMb": null,
+        "apiRssMb": null
+      },
+      {
+        "elapsedMs": 12190,
+        "elapsedSec": 12,
+        "indexStatus": "ready=4",
+        "outbox": "processed=4",
+        "backends": 2,
+        "byLastQuery": "claimer=1,other=1",
+        "progress": "canon_chunks=8",
+        "workerRssMb": null,
+        "apiRssMb": null
+      }
+    ]
+  },
+  "ledgerEntries": {
+    "target": 8,
+    "published": 7,
+    "failed": 1,
+    "failures": [
+      {
+        "kind": "character",
+        "index": 1,
+        "message": "Error: POST /api/ledger/entries -> 400\n{\"error\":{\"code\":\"LEDGER_STATE_DUPLICATE_CHAPTER\",\"message\":\"同一角色在同一章节只能记录一条状态\"}}"
+      }
+    ],
+    "byKind": {
+      "setting": 4,
+      "character": 1,
+      "foreshadowing": 2
+    },
+    "byScope": {
+      "work": 4,
+      "workspace": 3
+    },
+    "createMedianMs": 26,
+    "publishMedianMs": 21,
+    "createTotalMs": 153,
+    "publishTotalMs": 160,
+    "note": "创建与发布各自计一次 HTTP 往返；发布同时写版本、生效指针、审计与 index.ledger outbox。"
+  },
+  "ledgerQueueStart": {
+    "at": "2026-10-22T19:31:22.990Z",
+    "indexStatus": "indexing=1,pending=6",
+    "outbox": "pending=6,processed=4,processing=1"
+  },
+  "ledgerDrain": {
+    "fullyDrained": true,
+    "timedOut": false,
+    "elapsedMs": 16876,
+    "readyAtQueueStart": 0,
+    "entriesIndexedInWindow": 7,
+    "entriesPerMinute": 24.89,
+    "rateNote": "分母只算本轮窗口内真正需要索引的条目（发布总数减去入队即刻已 ready 的条数）；把全部条目除以整段用时会把速率抬高。",
+    "samples": [
+      {
+        "elapsedMs": 0,
+        "elapsedSec": 0,
+        "indexStatus": "indexing=1,pending=6",
+        "outbox": "pending=6,processed=4,processing=1",
+        "backends": 2,
+        "byLastQuery": "other=2",
+        "progress": "ledger_chunks=0 vectors=0",
+        "workerRssMb": null,
+        "apiRssMb": null
+      },
+      {
+        "elapsedMs": 4178,
+        "elapsedSec": 4,
+        "indexStatus": "indexing=1,pending=5,ready=1",
+        "outbox": "processed=6,processing=5",
+        "backends": 2,
+        "byLastQuery": "other=2",
+        "progress": "ledger_chunks=4 vectors=4",
+        "workerRssMb": null,
+        "apiRssMb": null
+      },
+      {
+        "elapsedMs": 8342,
+        "elapsedSec": 8,
+        "indexStatus": "indexing=1,pending=3,ready=3",
+        "outbox": "processed=7,processing=4",
+        "backends": 2,
+        "byLastQuery": "other=2",
+        "progress": "ledger_chunks=8 vectors=8",
+        "workerRssMb": null,
+        "apiRssMb": null
+      },
+      {
+        "elapsedMs": 12592,
+        "elapsedSec": 13,
+        "indexStatus": "indexing=1,pending=1,ready=5",
+        "outbox": "processed=9,processing=2",
+        "backends": 2,
+        "byLastQuery": "other=2",
+        "progress": "ledger_chunks=12 vectors=12",
+        "workerRssMb": null,
+        "apiRssMb": null
+      },
+      {
+        "elapsedMs": 16876,
+        "elapsedSec": 17,
+        "indexStatus": "ready=7",
+        "outbox": "processed=11",
+        "backends": 2,
+        "byLastQuery": "claimer=1,other=1",
+        "progress": "ledger_chunks=13 vectors=13",
+        "workerRssMb": null,
+        "apiRssMb": null
+      }
+    ]
+  },
+  "topology": {
+    "claimBatchCap": 10,
+    "preflight": {
+      "backends": 2,
+      "byLastQuery": "claimer=1,other=1"
+    },
+    "maxClaimersObserved": {
+      "canon": 1,
+      "ledger": 1
+    },
+    "maxProcessingObserved": {
+      "canon": 4,
+      "ledger": 5
+    },
+    "singleWorkerProvable": true,
+    "note": "claimer 取自 pg_stat_activity 里最近一条语句为 outbox 领取更新的连接数（并发领任务实例数的下界）；processing 是采样瞬间同时在处理的任务数。单个 worker 一次只领 10 条且逐条 await，所以任一瞬间 processing 超过该上限就说明不止一个实例在领任务，此时排空速率是多实例聚合值。"
+  },
+  "canonOutboxShape": {
+    "status": "processed=4",
+    "attempts": "attempts=1:4",
+    "lockAge": "locked_max_age_sec=null"
+  },
+  "ledgerOutboxShape": {
+    "status": "processed=7",
+    "attempts": "attempts=1:7",
+    "lockAge": "locked_max_age_sec=null"
+  },
+  "indexDetail": {
+    "canon": "压测嵌入 ledger-smoke4/bge-m3:latest dim=1024 chunks=2 | 压测嵌入 ledger-smoke4/bge-m3:latest dim=1024 chunks=2 | 压测嵌入 ledger-smoke4/bge-m3:latest dim=1024 chunks=2",
+    "ledger": "压测嵌入 ledger-smoke4/bge-m3:latest dim=1024 chunks=2 | 压测嵌入 ledger-smoke4/bge-m3:latest dim=1024 chunks=2 | 压测嵌入 ledger-smoke4/bge-m3:latest dim=1024 chunks=2"
+  },
+  "chunkStats": {
+    "canon": "chunks_per_chapter_avg=2.00 max=2 min=2",
+    "ledger": "entries_with_chunks=7 avg=1.86 max=3 min=1",
+    "ledgerByKind": "character: avg=3.00 min=3 max=3 entries=1 | setting: avg=2.00 min=2 max=2 entries=4 | foreshadowing: avg=1.00 min=1 max=1 entries=2"
+  },
+  "ledgerCoverage": "ledger_chunks=13 vector_chunks=13",
+  "ledgerStatusDetail": "ready=7",
+  "ledgerRetryDetail": "attempts_max=1 with_next_retry=0 last_error_kinds=null",
+  "calls": {
+    "indexPhase": "n=11 ok=11 failed=0 blocked=0 prompt_tokens=6594 cost=0.0000 CNY latency_med=1992",
+    "queryPhase": "n=15 ok=15 failed=0 blocked=0 prompt_tokens=147 cost=0.0000 CNY latency_med=197",
+    "queryPhaseAtDrainEnd": "n=0 ok=0 failed=0 blocked=0 prompt_tokens=0 cost=0 - latency_med=null",
+    "providerTotal": "n=26 ok=26",
+    "note": "indexPhase 在检索开始前取样，含正典与账本两侧的嵌入调用（按同一 purpose 记账，未分侧）；queryPhase 按每次混合检索的查询向量记账。"
+  },
+  "retrieval": [
+    {
+      "mode": "lexical",
+      "label": "设定名称",
+      "expect": "ledger",
+      "queryChars": 9,
+      "medianMs": 19,
+      "samples": [
+        299,
+        19,
+        16
+      ],
+      "canonResults": 0,
+      "canonTopChapter": null,
+      "ledgerResults": 8,
+      "ledgerTopKind": "setting",
+      "ledgerTopName": "压测设定 0001",
+      "ledgerTopLexicalScore": 1.1,
+      "ledgerTopVectorScore": null,
+      "ledgerTopRrfScore": 0.016393,
+      "modeUsed": "lexical",
+      "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+      "ledgerReason": null,
+      "coverage": {
+        "totalCanonChapters": 4,
+        "ready": 4,
+        "chunks": 8,
+        "vectorChunks": 8,
+        "vectorModel": "bge-m3:latest"
+      },
+      "ledgerCoverage": {
+        "activeEntries": 7,
+        "indexedEntries": 7,
+        "chunks": 13,
+        "vectorChunks": 13,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 5679
+    },
+    {
+      "mode": "lexical",
+      "label": "角色别名",
+      "expect": "ledger",
+      "queryChars": 8,
+      "medianMs": 17,
+      "samples": [
+        20,
+        17,
+        17
+      ],
+      "canonResults": 0,
+      "canonTopChapter": null,
+      "ledgerResults": 8,
+      "ledgerTopKind": "character",
+      "ledgerTopName": "压测角色 0002",
+      "ledgerTopLexicalScore": 0.7,
+      "ledgerTopVectorScore": null,
+      "ledgerTopRrfScore": 0.016393,
+      "modeUsed": "lexical",
+      "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+      "ledgerReason": null,
+      "coverage": {
+        "totalCanonChapters": 4,
+        "ready": 4,
+        "chunks": 8,
+        "vectorChunks": 8,
+        "vectorModel": "bge-m3:latest"
+      },
+      "ledgerCoverage": {
+        "activeEntries": 7,
+        "indexedEntries": 7,
+        "chunks": 13,
+        "vectorChunks": 13,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 5678
+    },
+    {
+      "mode": "lexical",
+      "label": "状态字段",
+      "expect": "ledger",
+      "queryChars": 10,
+      "medianMs": 15,
+      "samples": [
+        15,
+        16,
+        15
+      ],
+      "canonResults": 4,
+      "canonTopChapter": 1,
+      "ledgerResults": 8,
+      "ledgerTopKind": "character",
+      "ledgerTopName": "压测角色 0002",
+      "ledgerTopLexicalScore": 1.1,
+      "ledgerTopVectorScore": null,
+      "ledgerTopRrfScore": 0.016393,
+      "modeUsed": "lexical",
+      "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+      "ledgerReason": null,
+      "coverage": {
+        "totalCanonChapters": 4,
+        "ready": 4,
+        "chunks": 8,
+        "vectorChunks": 8,
+        "vectorModel": "bge-m3:latest"
+      },
+      "ledgerCoverage": {
+        "activeEntries": 7,
+        "indexedEntries": 7,
+        "chunks": 13,
+        "vectorChunks": 13,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 7718
+    },
+    {
+      "mode": "lexical",
+      "label": "正文短语（正典与账本共有）",
+      "expect": "both",
+      "queryChars": 7,
+      "medianMs": 17,
+      "samples": [
+        16,
+        17,
+        17
+      ],
+      "canonResults": 4,
+      "canonTopChapter": 1,
+      "ledgerResults": 8,
+      "ledgerTopKind": "character",
+      "ledgerTopName": "压测角色 0002",
+      "ledgerTopLexicalScore": 1.8,
+      "ledgerTopVectorScore": null,
+      "ledgerTopRrfScore": 0.016393,
+      "modeUsed": "lexical",
+      "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+      "ledgerReason": null,
+      "coverage": {
+        "totalCanonChapters": 4,
+        "ready": 4,
+        "chunks": 8,
+        "vectorChunks": 8,
+        "vectorModel": "bge-m3:latest"
+      },
+      "ledgerCoverage": {
+        "activeEntries": 7,
+        "indexedEntries": 7,
+        "chunks": 13,
+        "vectorChunks": 13,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 7707
+    },
+    {
+      "mode": "lexical",
+      "label": "域外对照",
+      "expect": "none",
+      "queryChars": 11,
+      "medianMs": 11,
+      "samples": [
+        12,
+        7,
+        11
+      ],
+      "canonResults": 0,
+      "canonTopChapter": null,
+      "ledgerResults": 0,
+      "ledgerTopKind": null,
+      "ledgerTopName": null,
+      "ledgerTopLexicalScore": null,
+      "ledgerTopVectorScore": null,
+      "ledgerTopRrfScore": null,
+      "modeUsed": "lexical",
+      "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+      "ledgerReason": null,
+      "coverage": {
+        "totalCanonChapters": 4,
+        "ready": 4,
+        "chunks": 8,
+        "vectorChunks": 8,
+        "vectorModel": "bge-m3:latest"
+      },
+      "ledgerCoverage": {
+        "activeEntries": 7,
+        "indexedEntries": 7,
+        "chunks": 13,
+        "vectorChunks": 13,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 416
+    },
+    {
+      "mode": "auto",
+      "label": "设定名称",
+      "expect": "ledger",
+      "queryChars": 9,
+      "medianMs": 216,
+      "samples": [
+        308,
+        216,
+        195
+      ],
+      "canonResults": 4,
+      "canonTopChapter": 1,
+      "ledgerResults": 8,
+      "ledgerTopKind": "setting",
+      "ledgerTopName": "压测设定 0001",
+      "ledgerTopLexicalScore": 1.1,
+      "ledgerTopVectorScore": 0.628317,
+      "ledgerTopRrfScore": 0.032522,
+      "modeUsed": "hybrid",
+      "semanticReason": null,
+      "ledgerReason": null,
+      "coverage": {
+        "totalCanonChapters": 4,
+        "ready": 4,
+        "chunks": 8,
+        "vectorChunks": 8,
+        "vectorModel": "bge-m3:latest"
+      },
+      "ledgerCoverage": {
+        "activeEntries": 7,
+        "indexedEntries": 7,
+        "chunks": 13,
+        "vectorChunks": 13,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 7740
+    },
+    {
+      "mode": "auto",
+      "label": "角色别名",
+      "expect": "ledger",
+      "queryChars": 8,
+      "medianMs": 198,
+      "samples": [
+        198,
+        190,
+        203
+      ],
+      "canonResults": 4,
+      "canonTopChapter": 4,
+      "ledgerResults": 8,
+      "ledgerTopKind": "character",
+      "ledgerTopName": "压测角色 0002",
+      "ledgerTopLexicalScore": 0.7,
+      "ledgerTopVectorScore": 0.604075,
+      "ledgerTopRrfScore": 0.032787,
+      "modeUsed": "hybrid",
+      "semanticReason": null,
+      "ledgerReason": null,
+      "coverage": {
+        "totalCanonChapters": 4,
+        "ready": 4,
+        "chunks": 8,
+        "vectorChunks": 8,
+        "vectorModel": "bge-m3:latest"
+      },
+      "ledgerCoverage": {
+        "activeEntries": 7,
+        "indexedEntries": 7,
+        "chunks": 13,
+        "vectorChunks": 13,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 7739
+    },
+    {
+      "mode": "auto",
+      "label": "状态字段",
+      "expect": "ledger",
+      "queryChars": 10,
+      "medianMs": 224,
+      "samples": [
+        224,
+        227,
+        215
+      ],
+      "canonResults": 4,
+      "canonTopChapter": 2,
+      "ledgerResults": 8,
+      "ledgerTopKind": "character",
+      "ledgerTopName": "压测角色 0002",
+      "ledgerTopLexicalScore": 1.1,
+      "ledgerTopVectorScore": 0.651745,
+      "ledgerTopRrfScore": 0.032522,
+      "modeUsed": "hybrid",
+      "semanticReason": null,
+      "ledgerReason": null,
+      "coverage": {
+        "totalCanonChapters": 4,
+        "ready": 4,
+        "chunks": 8,
+        "vectorChunks": 8,
+        "vectorModel": "bge-m3:latest"
+      },
+      "ledgerCoverage": {
+        "activeEntries": 7,
+        "indexedEntries": 7,
+        "chunks": 13,
+        "vectorChunks": 13,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 7711
+    },
+    {
+      "mode": "auto",
+      "label": "正文短语（正典与账本共有）",
+      "expect": "both",
+      "queryChars": 7,
+      "medianMs": 226,
+      "samples": [
+        214,
+        264,
+        226
+      ],
+      "canonResults": 4,
+      "canonTopChapter": 1,
+      "ledgerResults": 8,
+      "ledgerTopKind": "setting",
+      "ledgerTopName": "压测设定 0003",
+      "ledgerTopLexicalScore": 1.8,
+      "ledgerTopVectorScore": 0.530968,
+      "ledgerTopRrfScore": 0.032002,
+      "modeUsed": "hybrid",
+      "semanticReason": null,
+      "ledgerReason": null,
+      "coverage": {
+        "totalCanonChapters": 4,
+        "ready": 4,
+        "chunks": 8,
+        "vectorChunks": 8,
+        "vectorModel": "bge-m3:latest"
+      },
+      "ledgerCoverage": {
+        "activeEntries": 7,
+        "indexedEntries": 7,
+        "chunks": 13,
+        "vectorChunks": 13,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 7704
+    },
+    {
+      "mode": "auto",
+      "label": "域外对照",
+      "expect": "none",
+      "queryChars": 11,
+      "medianMs": 225,
+      "samples": [
+        225,
+        203,
+        225
+      ],
+      "canonResults": 0,
+      "canonTopChapter": null,
+      "ledgerResults": 0,
+      "ledgerTopKind": null,
+      "ledgerTopName": null,
+      "ledgerTopLexicalScore": null,
+      "ledgerTopVectorScore": null,
+      "ledgerTopRrfScore": null,
+      "modeUsed": "lexical",
+      "semanticReason": "向量最高相似度 0.310 低于阈值 0.400，本次仅用词法检索",
+      "ledgerReason": "账本向量最高相似度低于阈值 0.400，本次账本仅用词法检索",
+      "coverage": {
+        "totalCanonChapters": 4,
+        "ready": 4,
+        "chunks": 8,
+        "vectorChunks": 8,
+        "vectorModel": "bge-m3:latest"
+      },
+      "ledgerCoverage": {
+        "activeEntries": 7,
+        "indexedEntries": 7,
+        "chunks": 13,
+        "vectorChunks": 13,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 457
+    }
+  ],
+  "countsAfterRun": {
+    "works": 2,
+    "chapters": 6,
+    "canon_versions": 5,
+    "canon_current": 5,
+    "canon_chunks": 8,
+    "chunk_embeddings": 8,
+    "index_status": 5,
+    "ledger_entries": 7,
+    "ledger_entry_versions": 7,
+    "ledger_entry_aliases": 7,
+    "ledger_chunks": 13,
+    "ledger_chunk_embeddings": 13,
+    "ledger_index_status": 7,
+    "chapter_ledger_links": 0,
+    "chapter_metadata": 5,
+    "outbox": 11,
+    "model_calls": 26,
+    "providers": 1,
+    "sessions": 1,
+    "events": 21,
+    "audit": 139
+  },
+  "cleanupNote": "临时服务商的 model_calls 共 26 条（报告 calls.providerTotal = n=26 ok=26，两者应一致），与服务商行一并按 id 删除；真实用量与耗时已先写入本报告 calls。",
+  "workspaceCounters": {
+    "before": {
+      "settingsVersion": 1,
+      "ledgerVersion": 23
+    },
+    "afterPublishes": {
+      "settingsVersion": 5,
+      "ledgerVersion": 26
+    },
+    "restoredTo": {
+      "settingsVersion": 1,
+      "ledgerVersion": 23
+    },
+    "note": "发布递增的工作区版本计数不在 COUNTS 里；清理后显式还原为压测前的值并留痕。"
+  },
+  "countsAfterCleanup": {
+    "works": 1,
+    "chapters": 2,
+    "canon_versions": 1,
+    "canon_current": 1,
+    "canon_chunks": 0,
+    "chunk_embeddings": 0,
+    "index_status": 1,
+    "ledger_entries": 0,
+    "ledger_entry_versions": 0,
+    "ledger_entry_aliases": 0,
+    "ledger_chunks": 0,
+    "ledger_chunk_embeddings": 0,
+    "ledger_index_status": 0,
+    "chapter_ledger_links": 0,
+    "chapter_metadata": 1,
+    "outbox": 0,
+    "model_calls": 0,
+    "providers": 0,
+    "sessions": 0,
+    "events": 3,
+    "audit": 119
+  },
+  "cleanupDrift": {},
+  "reanalysis": {
+    "at": "2026-10-22T19:32:51.988Z",
+    "corrected": [
+      "caveats[3]：措辞从\"证明只有一个实例\"收敛为\"与单实例一致\""
+    ],
+    "scaleNote": "4 章 + 8 条（角色状态在 4 章下触发 LEDGER_STATE_DUPLICATE_CHAPTER 约束，成功 7 条）；小规模的章节钳位产物，不是产品缺陷。"
+  }
+}

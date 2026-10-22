@@ -20,7 +20,7 @@
   },
   "caveats": [
     "合成正文：同一组 8 句 filler 循环拼接，切块边界与真实小说不同，检索命中也不具备语义难度。",
-    "单台机器上的单个 worker，POLL_MS 之间的采样是瞬时值而不是持续吞吐。",
+    "实例形状：采样里同时在处理的任务最多 1000 条，远超单实例 10 条的领用上限，说明当时有多个 worker 在领同一张 outbox（事后确认是历史遗留的孤儿 worker 进程）。因此本轮的排空速率是这台机器上的端到端聚合值，不是单 worker 吞吐；POLL_MS 之间的采样是瞬时值而不是持续吞吐。",
     "嵌入服务为本机模型，输入价填 0，成本数字不代表任何付费服务商。",
     "本轮没有并发读写混合，也没有 Studio 容器内测量。"
   ],
@@ -975,5 +975,24 @@
     "events": 3,
     "audit": 119
   },
-  "cleanupDrift": {}
+  "cleanupDrift": {},
+  "topology": {
+    "claimBatchCap": 10,
+    "maxProcessingObserved": {
+      "canon": 1000
+    },
+    "singleWorkerProvable": false,
+    "preflightCaptured": false,
+    "source": "对本报告自带 drain.samples[].outbox 的事后复算；samples 原始值未改动。",
+    "note": "采样里同时在处理的任务最多 1000 条，而单实例一次只领 10 条并逐条 await，说明本轮有约 100 个并发领任务的 worker；29 条/分钟是多实例聚合的端到端排空速率，不能当作单 worker 吞吐引用。"
+  },
+  "reanalysis": {
+    "at": "2026-10-22T19:32:51.988Z",
+    "corrected": [
+      "caveats[1]：原写成\"单台机器上的单个 worker\"，与自带 samples 矛盾，已按实测形状改写",
+      "新增 topology"
+    ],
+    "originalCaveat1": "单台机器上的单个 worker，POLL_MS 之间的采样是瞬时值而不是持续吞吐。",
+    "unchanged": "samples、calls、retrieval、chunkStats、embeddingCoverage 等原始读数未改动。"
+  }
 }

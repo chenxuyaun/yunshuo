@@ -1,0 +1,683 @@
+{
+  "generatedAt": "2026-10-22T17:36:12.160Z",
+  "base": "http://127.0.0.1:3101",
+  "database": "yunshuo_test",
+  "runId": "abb1b1bd",
+  "runLabel": "ledger-smoke",
+  "scenario": "小规模预跑：验脚本、账本条目构造、检索与清理路径，不作为千章读数",
+  "workTitle": "账本索引压测作品 abb1b1bd",
+  "cleanupWindowStart": "2026-10-22 17:35:08.558649+00",
+  "config": {
+    "chapterTarget": 12,
+    "charsPerChapter": 600,
+    "entryTarget": 8,
+    "entryMix": {
+      "setting": 4,
+      "character": 2,
+      "foreshadowing": 2,
+      "workScopedSettings": 3
+    },
+    "importBatchSize": 1000,
+    "pollMs": 4000,
+    "timeoutMs": 600000,
+    "embedBaseUrl": "http://127.0.0.1:11434/v1",
+    "embedModel": "bge-m3:latest",
+    "repeatsPerQuery": 3,
+    "automationRunner": "关闭（AUTOMATION_RUNNER=0，独立实例指向 yunshuo_test）"
+  },
+  "caveats": [
+    "合成正文与合成条目：同一组 8 句 filler 循环拼接，条目字段也从 filler 派生，检索命中不具备语义难度。",
+    "条目数量是按\"千章作品的上限\"构造的，不代表真实作品的账本规模；名称/别名/章节绑定按序号散布。",
+    "正典与账本本轮用同一个服务商同一个模型（同维度），检索只发一次查询向量、两个通道共用；模型/维度不同才走双查询向量那条分支，本脚本没有覆盖它。",
+    "单台机器上的单个 worker，POLL_MS 之间的采样是瞬时值而不是持续吞吐；两段排空串行在同一进程上。",
+    "嵌入服务为本机模型，输入价填 0，成本数字不代表任何付费服务商。",
+    "本轮没有并发读写混合（发布与索引串行），没有多工作区，没有 Studio 容器内测量，也没有做账本检索质量评估。"
+  ],
+  "baselineCounts": {
+    "works": 1,
+    "chapters": 2,
+    "canon_versions": 1,
+    "canon_current": 1,
+    "canon_chunks": 0,
+    "chunk_embeddings": 0,
+    "index_status": 1,
+    "ledger_entries": 0,
+    "ledger_entry_versions": 0,
+    "ledger_entry_aliases": 0,
+    "ledger_chunks": 0,
+    "ledger_chunk_embeddings": 0,
+    "ledger_index_status": 0,
+    "chapter_ledger_links": 0,
+    "chapter_metadata": 1,
+    "outbox": 0,
+    "model_calls": 0,
+    "providers": 0,
+    "sessions": 0,
+    "events": 3,
+    "audit": 119
+  },
+  "workspaceCountersBefore": {
+    "settingsVersion": 1,
+    "ledgerVersion": 23
+  },
+  "embedServiceProbe": {
+    "reachable": true,
+    "modelSeenInList": true
+  },
+  "import": {
+    "batches": [
+      {
+        "chapterCount": 12,
+        "importMs": 70,
+        "requestBodyBytes": 22428,
+        "storedWordCount": 7200
+      }
+    ],
+    "totalChapters": 12,
+    "totalImportMs": 70
+  },
+  "canonDrain": {
+    "fullyDrained": true,
+    "timedOut": false,
+    "elapsedMs": 29742,
+    "chaptersPerMinute": 24.2,
+    "samples": [
+      {
+        "elapsedMs": 0,
+        "elapsedSec": 0,
+        "indexStatus": "indexing=1,pending=11",
+        "outbox": "pending=2,processing=10",
+        "progress": "canon_chunks=0",
+        "workerRssMb": 81.6,
+        "apiRssMb": 98.2
+      },
+      {
+        "elapsedMs": 5790,
+        "elapsedSec": 6,
+        "indexStatus": "indexing=1,pending=9,ready=2",
+        "outbox": "pending=2,processed=3,processing=7",
+        "progress": "canon_chunks=6",
+        "workerRssMb": 81.6,
+        "apiRssMb": 98.2
+      },
+      {
+        "elapsedMs": 11796,
+        "elapsedSec": 12,
+        "indexStatus": "indexing=1,pending=6,ready=5",
+        "outbox": "pending=2,processed=6,processing=4",
+        "progress": "canon_chunks=12",
+        "workerRssMb": 81.9,
+        "apiRssMb": 98.2
+      },
+      {
+        "elapsedMs": 17776,
+        "elapsedSec": 18,
+        "indexStatus": "indexing=1,pending=3,ready=8",
+        "outbox": "pending=2,processed=9,processing=1",
+        "progress": "canon_chunks=18",
+        "workerRssMb": 81.9,
+        "apiRssMb": 98.2
+      },
+      {
+        "elapsedMs": 23838,
+        "elapsedSec": 24,
+        "indexStatus": "indexing=1,ready=11",
+        "outbox": "processed=11,processing=1",
+        "progress": "canon_chunks=22",
+        "workerRssMb": 81.9,
+        "apiRssMb": 98.2
+      },
+      {
+        "elapsedMs": 29742,
+        "elapsedSec": 30,
+        "indexStatus": "ready=12",
+        "outbox": "processed=12",
+        "progress": "canon_chunks=24",
+        "workerRssMb": 82.1,
+        "apiRssMb": 98.2
+      }
+    ]
+  },
+  "ledgerEntries": {
+    "target": 8,
+    "published": 8,
+    "failed": 0,
+    "failures": [],
+    "byKind": {
+      "setting": 4,
+      "character": 2,
+      "foreshadowing": 2
+    },
+    "byScope": {
+      "work": 7,
+      "workspace": 1
+    },
+    "createMedianMs": 13,
+    "publishMedianMs": 16,
+    "createTotalMs": 137,
+    "publishTotalMs": 135,
+    "note": "创建与发布各自计一次 HTTP 往返；发布同时写版本、生效指针、审计与 index.ledger outbox。"
+  },
+  "ledgerQueueStart": {
+    "at": "2026-10-22T17:35:40.397Z",
+    "indexStatus": "indexing=1,pending=7",
+    "outbox": "pending=1,processed=12,processing=7"
+  },
+  "ledgerDrain": {
+    "fullyDrained": true,
+    "timedOut": false,
+    "elapsedMs": 23589,
+    "entriesPerMinute": 20.3,
+    "samples": [
+      {
+        "elapsedMs": 0,
+        "elapsedSec": 0,
+        "indexStatus": "indexing=1,pending=7",
+        "outbox": "pending=1,processed=12,processing=7",
+        "progress": "ledger_chunks=0 vectors=0",
+        "workerRssMb": 82.1,
+        "apiRssMb": 98.7
+      },
+      {
+        "elapsedMs": 6072,
+        "elapsedSec": 6,
+        "indexStatus": "indexing=1,pending=4,ready=3",
+        "outbox": "pending=1,processed=15,processing=4",
+        "progress": "ledger_chunks=6 vectors=6",
+        "workerRssMb": 82.3,
+        "apiRssMb": 98.7
+      },
+      {
+        "elapsedMs": 12055,
+        "elapsedSec": 12,
+        "indexStatus": "indexing=1,pending=2,ready=5",
+        "outbox": "pending=1,processed=17,processing=2",
+        "progress": "ledger_chunks=11 vectors=11",
+        "workerRssMb": 82.7,
+        "apiRssMb": 98.7
+      },
+      {
+        "elapsedMs": 18017,
+        "elapsedSec": 18,
+        "indexStatus": "indexing=1,ready=7",
+        "outbox": "processed=19,processing=1",
+        "progress": "ledger_chunks=15 vectors=15",
+        "workerRssMb": 83.1,
+        "apiRssMb": 98.7
+      },
+      {
+        "elapsedMs": 23589,
+        "elapsedSec": 24,
+        "indexStatus": "ready=8",
+        "outbox": "processed=20",
+        "progress": "ledger_chunks=16 vectors=16",
+        "workerRssMb": 83.1,
+        "apiRssMb": 98.7
+      }
+    ]
+  },
+  "indexDetail": {
+    "canon": "压测嵌入 ledger-smoke/bge-m3:latest dim=1024 chunks=2 | 压测嵌入 ledger-smoke/bge-m3:latest dim=1024 chunks=2 | 压测嵌入 ledger-smoke/bge-m3:latest dim=1024 chunks=2",
+    "ledger": "压测嵌入 ledger-smoke/bge-m3:latest dim=1024 chunks=2 | 压测嵌入 ledger-smoke/bge-m3:latest dim=1024 chunks=2 | 压测嵌入 ledger-smoke/bge-m3:latest dim=1024 chunks=2"
+  },
+  "chunkStats": {
+    "canon": "chunks_per_chapter_avg=2.00 max=2 min=2",
+    "ledger": "entries_with_chunks=8 avg=2.00 max=3 min=1",
+    "ledgerByKind": "character: avg=3.00 min=3 max=3 entries=2 | setting: avg=2.00 min=2 max=2 entries=4 | foreshadowing: avg=1.00 min=1 max=1 entries=2"
+  },
+  "ledgerCoverage": "ledger_chunks=16 vector_chunks=16",
+  "ledgerStatusDetail": "ready=8",
+  "ledgerRetryDetail": "attempts_max=1 with_next_retry=0 last_error_kinds=null",
+  "calls": {
+    "indexPhase": "n=20 ok=20 failed=0 blocked=0 prompt_tokens=12582 cost=0.0000 CNY latency_med=1994",
+    "queryPhase": "n=15 ok=15 failed=0 blocked=0 prompt_tokens=147 cost=0.0000 CNY latency_med=192",
+    "queryPhaseAtDrainEnd": "n=0 ok=0 failed=0 blocked=0 prompt_tokens=0 cost=0 - latency_med=null",
+    "providerTotal": "n=35 ok=35",
+    "note": "indexPhase 在检索开始前取样，含正典与账本两侧的嵌入调用（按同一 purpose 记账，未分侧）；queryPhase 按每次混合检索的查询向量记账。"
+  },
+  "retrieval": [
+    {
+      "mode": "lexical",
+      "label": "设定名称",
+      "expect": "ledger",
+      "queryChars": 9,
+      "medianMs": 34,
+      "samples": [
+        299,
+        30,
+        34
+      ],
+      "canonResults": 0,
+      "canonTopChapter": null,
+      "ledgerResults": 8,
+      "ledgerTopKind": "setting",
+      "ledgerTopName": "压测设定 0001",
+      "ledgerTopLexicalScore": 1.1,
+      "ledgerTopVectorScore": null,
+      "ledgerTopRrfScore": 0.016393,
+      "modeUsed": "lexical",
+      "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+      "ledgerReason": null,
+      "coverage": {
+        "totalCanonChapters": 12,
+        "ready": 12,
+        "chunks": 24,
+        "vectorChunks": 24,
+        "vectorModel": "bge-m3:latest"
+      },
+      "ledgerCoverage": {
+        "activeEntries": 8,
+        "indexedEntries": 8,
+        "chunks": 16,
+        "vectorChunks": 16,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 5737
+    },
+    {
+      "mode": "lexical",
+      "label": "角色别名",
+      "expect": "ledger",
+      "queryChars": 8,
+      "medianMs": 26,
+      "samples": [
+        26,
+        23,
+        29
+      ],
+      "canonResults": 0,
+      "canonTopChapter": null,
+      "ledgerResults": 8,
+      "ledgerTopKind": "character",
+      "ledgerTopName": "压测角色 0001",
+      "ledgerTopLexicalScore": 0.8,
+      "ledgerTopVectorScore": null,
+      "ledgerTopRrfScore": 0.016393,
+      "modeUsed": "lexical",
+      "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+      "ledgerReason": null,
+      "coverage": {
+        "totalCanonChapters": 12,
+        "ready": 12,
+        "chunks": 24,
+        "vectorChunks": 24,
+        "vectorModel": "bge-m3:latest"
+      },
+      "ledgerCoverage": {
+        "activeEntries": 8,
+        "indexedEntries": 8,
+        "chunks": 16,
+        "vectorChunks": 16,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 5771
+    },
+    {
+      "mode": "lexical",
+      "label": "状态字段",
+      "expect": "ledger",
+      "queryChars": 10,
+      "medianMs": 31,
+      "samples": [
+        19,
+        31,
+        31
+      ],
+      "canonResults": 8,
+      "canonTopChapter": 1,
+      "ledgerResults": 8,
+      "ledgerTopKind": "character",
+      "ledgerTopName": "压测角色 0001",
+      "ledgerTopLexicalScore": 2.2,
+      "ledgerTopVectorScore": null,
+      "ledgerTopRrfScore": 0.016393,
+      "modeUsed": "lexical",
+      "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+      "ledgerReason": null,
+      "coverage": {
+        "totalCanonChapters": 12,
+        "ready": 12,
+        "chunks": 24,
+        "vectorChunks": 24,
+        "vectorModel": "bge-m3:latest"
+      },
+      "ledgerCoverage": {
+        "activeEntries": 8,
+        "indexedEntries": 8,
+        "chunks": 16,
+        "vectorChunks": 16,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 9870
+    },
+    {
+      "mode": "lexical",
+      "label": "正文短语（正典与账本共有）",
+      "expect": "both",
+      "queryChars": 7,
+      "medianMs": 29,
+      "samples": [
+        29,
+        30,
+        13
+      ],
+      "canonResults": 8,
+      "canonTopChapter": 1,
+      "ledgerResults": 8,
+      "ledgerTopKind": "character",
+      "ledgerTopName": "压测角色 0001",
+      "ledgerTopLexicalScore": 2.3,
+      "ledgerTopVectorScore": null,
+      "ledgerTopRrfScore": 0.016393,
+      "modeUsed": "lexical",
+      "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+      "ledgerReason": null,
+      "coverage": {
+        "totalCanonChapters": 12,
+        "ready": 12,
+        "chunks": 24,
+        "vectorChunks": 24,
+        "vectorModel": "bge-m3:latest"
+      },
+      "ledgerCoverage": {
+        "activeEntries": 8,
+        "indexedEntries": 8,
+        "chunks": 16,
+        "vectorChunks": 16,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 9886
+    },
+    {
+      "mode": "lexical",
+      "label": "域外对照",
+      "expect": "none",
+      "queryChars": 11,
+      "medianMs": 16,
+      "samples": [
+        10,
+        18,
+        16
+      ],
+      "canonResults": 0,
+      "canonTopChapter": null,
+      "ledgerResults": 0,
+      "ledgerTopKind": null,
+      "ledgerTopName": null,
+      "ledgerTopLexicalScore": null,
+      "ledgerTopVectorScore": null,
+      "ledgerTopRrfScore": null,
+      "modeUsed": "lexical",
+      "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+      "ledgerReason": null,
+      "coverage": {
+        "totalCanonChapters": 12,
+        "ready": 12,
+        "chunks": 24,
+        "vectorChunks": 24,
+        "vectorModel": "bge-m3:latest"
+      },
+      "ledgerCoverage": {
+        "activeEntries": 8,
+        "indexedEntries": 8,
+        "chunks": 16,
+        "vectorChunks": 16,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 420
+    },
+    {
+      "mode": "auto",
+      "label": "设定名称",
+      "expect": "ledger",
+      "queryChars": 9,
+      "medianMs": 233,
+      "samples": [
+        321,
+        233,
+        220
+      ],
+      "canonResults": 8,
+      "canonTopChapter": 7,
+      "ledgerResults": 8,
+      "ledgerTopKind": "setting",
+      "ledgerTopName": "压测设定 0001",
+      "ledgerTopLexicalScore": 1.1,
+      "ledgerTopVectorScore": 0.628164,
+      "ledgerTopRrfScore": 0.032522,
+      "modeUsed": "hybrid",
+      "semanticReason": null,
+      "ledgerReason": null,
+      "coverage": {
+        "totalCanonChapters": 12,
+        "ready": 12,
+        "chunks": 24,
+        "vectorChunks": 24,
+        "vectorModel": "bge-m3:latest"
+      },
+      "ledgerCoverage": {
+        "activeEntries": 8,
+        "indexedEntries": 8,
+        "chunks": 16,
+        "vectorChunks": 16,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 9879
+    },
+    {
+      "mode": "auto",
+      "label": "角色别名",
+      "expect": "ledger",
+      "queryChars": 8,
+      "medianMs": 217,
+      "samples": [
+        217,
+        242,
+        199
+      ],
+      "canonResults": 8,
+      "canonTopChapter": 12,
+      "ledgerResults": 8,
+      "ledgerTopKind": "character",
+      "ledgerTopName": "压测角色 0001",
+      "ledgerTopLexicalScore": 0.8,
+      "ledgerTopVectorScore": 0.606978,
+      "ledgerTopRrfScore": 0.032787,
+      "modeUsed": "hybrid",
+      "semanticReason": null,
+      "ledgerReason": null,
+      "coverage": {
+        "totalCanonChapters": 12,
+        "ready": 12,
+        "chunks": 24,
+        "vectorChunks": 24,
+        "vectorModel": "bge-m3:latest"
+      },
+      "ledgerCoverage": {
+        "activeEntries": 8,
+        "indexedEntries": 8,
+        "chunks": 16,
+        "vectorChunks": 16,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 9916
+    },
+    {
+      "mode": "auto",
+      "label": "状态字段",
+      "expect": "ledger",
+      "queryChars": 10,
+      "medianMs": 208,
+      "samples": [
+        209,
+        202,
+        208
+      ],
+      "canonResults": 8,
+      "canonTopChapter": 6,
+      "ledgerResults": 8,
+      "ledgerTopKind": "character",
+      "ledgerTopName": "压测角色 0001",
+      "ledgerTopLexicalScore": 2.2,
+      "ledgerTopVectorScore": 0.676514,
+      "ledgerTopRrfScore": 0.032522,
+      "modeUsed": "hybrid",
+      "semanticReason": null,
+      "ledgerReason": null,
+      "coverage": {
+        "totalCanonChapters": 12,
+        "ready": 12,
+        "chunks": 24,
+        "vectorChunks": 24,
+        "vectorModel": "bge-m3:latest"
+      },
+      "ledgerCoverage": {
+        "activeEntries": 8,
+        "indexedEntries": 8,
+        "chunks": 16,
+        "vectorChunks": 16,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 9869
+    },
+    {
+      "mode": "auto",
+      "label": "正文短语（正典与账本共有）",
+      "expect": "both",
+      "queryChars": 7,
+      "medianMs": 223,
+      "samples": [
+        227,
+        223,
+        213
+      ],
+      "canonResults": 8,
+      "canonTopChapter": 6,
+      "ledgerResults": 8,
+      "ledgerTopKind": "character",
+      "ledgerTopName": "压测角色 0001",
+      "ledgerTopLexicalScore": 2.3,
+      "ledgerTopVectorScore": 0.611973,
+      "ledgerTopRrfScore": 0.032266,
+      "modeUsed": "hybrid",
+      "semanticReason": null,
+      "ledgerReason": null,
+      "coverage": {
+        "totalCanonChapters": 12,
+        "ready": 12,
+        "chunks": 24,
+        "vectorChunks": 24,
+        "vectorModel": "bge-m3:latest"
+      },
+      "ledgerCoverage": {
+        "activeEntries": 8,
+        "indexedEntries": 8,
+        "chunks": 16,
+        "vectorChunks": 16,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 9870
+    },
+    {
+      "mode": "auto",
+      "label": "域外对照",
+      "expect": "none",
+      "queryChars": 11,
+      "medianMs": 207,
+      "samples": [
+        217,
+        182,
+        207
+      ],
+      "canonResults": 0,
+      "canonTopChapter": null,
+      "ledgerResults": 0,
+      "ledgerTopKind": null,
+      "ledgerTopName": null,
+      "ledgerTopLexicalScore": null,
+      "ledgerTopVectorScore": null,
+      "ledgerTopRrfScore": null,
+      "modeUsed": "lexical",
+      "semanticReason": "向量最高相似度 0.310 低于阈值 0.400，本次仅用词法检索",
+      "ledgerReason": "账本向量最高相似度低于阈值 0.400，本次账本仅用词法检索",
+      "coverage": {
+        "totalCanonChapters": 12,
+        "ready": 12,
+        "chunks": 24,
+        "vectorChunks": 24,
+        "vectorModel": "bge-m3:latest"
+      },
+      "ledgerCoverage": {
+        "activeEntries": 8,
+        "indexedEntries": 8,
+        "chunks": 16,
+        "vectorChunks": 16,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 461
+    }
+  ],
+  "countsAfterRun": {
+    "works": 2,
+    "chapters": 14,
+    "canon_versions": 13,
+    "canon_current": 13,
+    "canon_chunks": 24,
+    "chunk_embeddings": 24,
+    "index_status": 13,
+    "ledger_entries": 8,
+    "ledger_entry_versions": 8,
+    "ledger_entry_aliases": 8,
+    "ledger_chunks": 16,
+    "ledger_chunk_embeddings": 16,
+    "ledger_index_status": 8,
+    "chapter_ledger_links": 0,
+    "chapter_metadata": 13,
+    "outbox": 20,
+    "model_calls": 35,
+    "providers": 1,
+    "sessions": 1,
+    "events": 31,
+    "audit": 149
+  },
+  "cleanupNote": "临时服务商的 model_calls 共 35 条（报告 calls.providerTotal = n=35 ok=35，两者应一致），与服务商行一并按 id 删除；真实用量与耗时已先写入本报告 calls。",
+  "workspaceCounters": {
+    "before": {
+      "settingsVersion": 1,
+      "ledgerVersion": 23
+    },
+    "afterPublishes": {
+      "settingsVersion": 5,
+      "ledgerVersion": 27
+    },
+    "restoredTo": {
+      "settingsVersion": 1,
+      "ledgerVersion": 23
+    },
+    "note": "发布递增的工作区版本计数不在 COUNTS 里；清理后显式还原为压测前的值并留痕。"
+  },
+  "countsAfterCleanup": {
+    "works": 1,
+    "chapters": 2,
+    "canon_versions": 1,
+    "canon_current": 1,
+    "canon_chunks": 0,
+    "chunk_embeddings": 0,
+    "index_status": 1,
+    "ledger_entries": 0,
+    "ledger_entry_versions": 0,
+    "ledger_entry_aliases": 0,
+    "ledger_chunks": 0,
+    "ledger_chunk_embeddings": 0,
+    "ledger_index_status": 0,
+    "chapter_ledger_links": 0,
+    "chapter_metadata": 1,
+    "outbox": 0,
+    "model_calls": 0,
+    "providers": 0,
+    "sessions": 0,
+    "events": 3,
+    "audit": 119
+  },
+  "cleanupDrift": {}
+}
