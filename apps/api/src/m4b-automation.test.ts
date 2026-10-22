@@ -72,6 +72,9 @@ suite('M4-B 自动化授权 / 预检 / 无人值守入库', () => {
   let lead: Session;
   let author: Session;
   const testUserIds: string[] = [];
+  // 用例中途失败也会走到 afterAll：临时工作区一律登记在这里，由 afterAll 统一拆，
+  // 不靠用例自己记得清理（§十八 的教训：清理路径不能挂在被测流程成功之后）。
+  const extraWorkspaceIds: string[] = [];
   const chapterIds: Record<string, string> = {};
   let pricedProviderId = '';
 
@@ -332,6 +335,10 @@ suite('M4-B 自动化授权 / 预检 / 无人值守入库', () => {
     await createChapter(16, '暂停甲章', PLAN);
     await createChapter(17, '暂停乙章', PLAN);
     await createChapter(18, '暂停丙章', PLAN);
+    await createChapter(19, '互斥甲章', PLAN);
+    await createChapter(20, '互斥乙章', PLAN);
+    await createChapter(21, '互斥丙章', PLAN);
+    await createChapter(22, '竞态甲章', PLAN);
 
     const provider = await call<ModelProviderView>('POST', '/api/model-providers', owner, {
       name: 'M4-B 对话桩',
@@ -352,8 +359,10 @@ suite('M4-B 自动化授权 / 预检 / 无人值守入库', () => {
 
   afterAll(async () => {
     if (workspaceId) await removeWorkspaceData(workspaceId);
+    for (const id of extraWorkspaceIds) await removeWorkspaceData(id);
     if (testUserIds.length > 0) {
       await sql`DELETE FROM sessions WHERE user_id IN ${sql(testUserIds)}`;
+      await sql`DELETE FROM memberships WHERE user_id IN ${sql(testUserIds)}`;
       await sql`DELETE FROM users WHERE id IN ${sql(testUserIds)}`;
     }
     if (workspaceId) {
@@ -937,4 +946,365 @@ suite('M4-B 自动化授权 / 预检 / 无人值守入库', () => {
 
     await stopIfActive(running.body.id);
   });
+
+  it('过期授权先落库再拒绝、幽灵与跨区授权共用一句 404、终态作业既不能停也不能恢复', async () => {
+    stubRequests = [];
+
+    async function jobTrail(
+      jobId: string,
+      action: string,
+    ): Promise<{ audits: string; events: string }> {
+      const rows = await sql<{ audits: string; events: string }[]>`
+        SELECT
+          (SELECT count(*)::text FROM audit_log
+             WHERE object_id = ${jobId} AND action = ${`automation.job.${action}`}) AS audits,
+          (SELECT count(*)::text FROM events
+             WHERE aggregate_id = ${jobId} AND event_type = ${`automation.job.${action}`}) AS events
+      `;
+      return rows[0]!;
+    }
+
+    async function mandateRow(mandateId: string): Promise<{ status: string; future: boolean }> {
+      const rows = await sql<{ status: string; future: boolean }[]>`
+        SELECT status, expires_at > now() AS future
+        FROM automation_mandates WHERE id = ${mandateId}
+      `;
+      return rows[0]!;
+    }
+
+    async function jobCountFor(mandateId: string): Promise<string> {
+      const rows = await sql<{ n: string }[]>`
+        SELECT count(*)::text AS n FROM automation_jobs WHERE mandate_id = ${mandateId}
+      `;
+      return rows[0]!.n;
+    }
+
+    async function activeJobCount(): Promise<string> {
+      const rows = await sql<{ n: string }[]>`
+        SELECT count(*)::text AS n FROM automation_jobs
+        WHERE workspace_id = ${workspaceId} AND status IN ('queued', 'running', 'paused')
+      `;
+      return rows[0]!.n;
+    }
+
+    async function jobStatus(jobId: string): Promise<string> {
+      const rows = await sql<{ status: string }[]>`
+        SELECT status FROM automation_jobs WHERE id = ${jobId}
+      `;
+      return rows[0]!.status;
+    }
+
+    // ① 同一个 404 同时回答"不存在"和"是别人区的"：loadMandateRow 把工作区写在 WHERE 里
+    //    （automation-service.ts:112/:123），三个入口各打一次，撤销那次还不能改动隔离区的授权。
+    const otherWorkspace = await createWorkspace('M4-B 互斥隔离工作区');
+    extraWorkspaceIds.push(otherWorkspace);
+    const otherOwnerId = randomUUID();
+    testUserIds.push(otherOwnerId);
+    await sql`
+      INSERT INTO users (id, email, name)
+      VALUES (${otherOwnerId}, ${`isolation${TEST_EMAIL_SUFFIX}`}, 'M4-B 隔离区所有者')
+    `;
+    await sql`
+      INSERT INTO memberships (workspace_id, user_id, role)
+      VALUES (${otherWorkspace}, ${otherOwnerId}, 'owner')
+    `;
+    const otherOwner = await login(`isolation${TEST_EMAIL_SUFFIX}`);
+    const otherWork = randomUUID();
+    await sql`
+      INSERT INTO works (id, workspace_id, title)
+      VALUES (${otherWork}, ${otherWorkspace}, 'M4-B 隔离区作品')
+    `;
+    const foreign = await call<AutomationMandateView>(
+      'POST',
+      '/api/automation/mandates',
+      otherOwner,
+      {
+        workId: otherWork,
+        name: '隔离区授权',
+        chapterMin: 1,
+        chapterMax: 100,
+        maxChapters: 10,
+        targetWords: 800,
+        expiresInHours: 2,
+      },
+    );
+    expect(foreign.status).toBe(200);
+
+    const ghost = randomUUID();
+    for (const mandateId of [ghost, foreign.body.id]) {
+      expectError(
+        await call('POST', `/api/automation/mandates/${mandateId}/revoke`, owner),
+        404,
+        'MANDATE_NOT_FOUND',
+      );
+      expectError(await preflight(mandateId, [chapterId('互斥甲章')]), 404, 'MANDATE_NOT_FOUND');
+      expectError(await createJob(mandateId, [chapterId('互斥甲章')]), 404, 'MANDATE_NOT_FOUND');
+    }
+    expect(await mandateRow(foreign.body.id)).toEqual({ status: 'active', future: true });
+    const ownList = await call<{ mandates: AutomationMandateView[] }>(
+      'GET',
+      '/api/automation/mandates',
+      owner,
+    );
+    expect(ownList.status).toBe(200);
+    expect(ownList.body.mandates.some((mandate) => mandate.id === foreign.body.id)).toBe(false);
+    await removeWorkspaceData(otherWorkspace);
+
+    // ② 过期在三个入口给出三种答案：createJob 是 409，preflight 是 200 + 失败检查项，
+    //    列表这个"读"操作会把到期授权顺手落定成 expired。
+    const expiring = await createMandate({ name: '过期授权' });
+    expect(await mandateRow(expiring.id)).toEqual({ status: 'active', future: true });
+    await sql`
+      UPDATE automation_mandates SET expires_at = now() - interval '1 minute'
+      WHERE id = ${expiring.id}
+    `;
+    const refusedCreate = await createJob(expiring.id, [chapterId('互斥甲章')]);
+    expectError(refusedCreate, 409, 'MANDATE_EXPIRED');
+    const refusedCreateError = (refusedCreate.body as unknown as ErrorBody).error;
+    expect(refusedCreateError.message).toBe('该自动化授权已过期，请重新创建');
+    // 这道守卫排在预检之前（:818 对 :820）：若先跑预检，回答会是 AUTOMATION_PRECHECK_FAILED。
+    expect(refusedCreateError.code).toBe('MANDATE_EXPIRED');
+    expect(await jobCountFor(expiring.id)).toBe('0');
+    // 但拒绝并没有把状态写回滚：授权已被这条 409 落定为 expired。
+    expect(await mandateRow(expiring.id)).toEqual({ status: 'expired', future: false });
+
+    const expiredPreflight = await preflight(expiring.id, [chapterId('互斥甲章')]);
+    expect(expiredPreflight.status).toBe(200);
+    expect(expiredPreflight.body.ok).toBe(false);
+    expect(
+      expiredPreflight.body.checks.find((check) => check.key === 'mandate')?.detail,
+    ).toBe('授权已过期，请重新创建授权。');
+
+    // 时间戳改回未来也照样拒：一旦落定为 expired，权威的是状态而不是 expires_at（:132 前半）。
+    await sql`
+      UPDATE automation_mandates SET expires_at = now() + interval '1 hour'
+      WHERE id = ${expiring.id}
+    `;
+    expectError(await createJob(expiring.id, [chapterId('互斥甲章')]), 409, 'MANDATE_EXPIRED');
+    expect(await mandateRow(expiring.id)).toEqual({ status: 'expired', future: true });
+
+    const listed = await createMandate({ name: '列表里到期' });
+    await sql`
+      UPDATE automation_mandates SET expires_at = now() - interval '1 second'
+      WHERE id = ${listed.id}
+    `;
+    expect(await mandateRow(listed.id)).toEqual({ status: 'active', future: false });
+    const listAfterExpiry = await call<{ mandates: AutomationMandateView[] }>(
+      'GET',
+      `/api/automation/mandates?workId=${workId}`,
+      owner,
+    );
+    expect(listAfterExpiry.status).toBe(200);
+    expect(
+      listAfterExpiry.body.mandates.find((mandate) => mandate.id === listed.id)?.status,
+    ).toBe('expired');
+    expect(await mandateRow(listed.id)).toEqual({ status: 'expired', future: false });
+
+    // ③ 恢复只认 paused / interrupted，停止只认非终态；两条闸的先后见 ⑤ 之后那条。
+    const mandate = await createMandate({ name: '终态收口授权' });
+    const first = await createJob(mandate.id, [chapterId('互斥乙章')]);
+    expect(first.status).toBe(200);
+    const firstPath = `/api/automation/jobs/${first.body.id}`;
+
+    const notResumable = await call<ErrorBody>('POST', `${firstPath}/resume`, owner);
+    expectError(notResumable, 409, 'JOB_NOT_RESUMABLE');
+    expect(notResumable.body.error.message).toBe(
+      '作业当前状态 queued，只有暂停或中断的作业可以恢复',
+    );
+    expect(await jobTrail(first.body.id, 'resume')).toEqual({ audits: '0', events: '0' });
+    expect(await activeJobCount()).toBe('1');
+
+    // 恢复的正控制：先把 runner 游标与错误 stamp 上去，恢复必须一次清干净。
+    await sql`
+      UPDATE automation_jobs
+      SET runner_id = 'stale-runner', heartbeat_at = now(), started_at = now(),
+          last_error = '测试遗留错误'
+      WHERE id = ${first.body.id}
+    `;
+    await call('POST', `${firstPath}/pause`, owner);
+    const resumed = await call<AutomationJobView>('POST', `${firstPath}/resume`, lead);
+    expect(resumed.status).toBe(200);
+    expect(resumed.body.status).toBe('queued');
+    expect(resumed.body).toMatchObject({
+      runnerId: null,
+      heartbeatAt: null,
+      lastError: null,
+      pauseRequested: false,
+      stopRequested: false,
+      completedAt: null,
+    });
+    expect(await jobTrail(first.body.id, 'resume')).toEqual({ audits: '1', events: '1' });
+
+    // 运行中的停止只举旗：状态仍是 running，审计记的是章节边界。
+    await sql`
+      UPDATE automation_jobs SET status = 'running', runner_id = ${automationRunnerId}
+      WHERE id = ${first.body.id}
+    `;
+    const flaggedStop = await call<AutomationJobView>('POST', `${firstPath}/stop`, owner);
+    expect(flaggedStop.status).toBe(200);
+    expect(flaggedStop.body.status).toBe('running');
+    expect(flaggedStop.body.stopRequested).toBe(true);
+    expect(await jobTrail(first.body.id, 'stop')).toEqual({ audits: '1', events: '1' });
+    const stopAttribution = await sql<{ actorType: string; boundary: string }[]>`
+      SELECT actor_type AS "actorType", metadata ->> 'boundary' AS boundary
+      FROM audit_log
+      WHERE object_id = ${first.body.id} AND action = 'automation.job.stop'
+    `;
+    expect(stopAttribution).toEqual([{ actorType: 'human', boundary: 'chapter_end' }]);
+
+    // ④ 终态既不能停也不能恢复，两次拒绝一条痕迹都不留。
+    const stopTrailBefore = await jobTrail(first.body.id, 'stop');
+    await sql`
+      UPDATE automation_jobs SET status = 'completed', completed_at = now()
+      WHERE id = ${first.body.id}
+    `;
+    const stoppedAgain = await call<ErrorBody>('POST', `${firstPath}/stop`, owner);
+    expectError(stoppedAgain, 409, 'JOB_NOT_STOPPABLE');
+    expect(stoppedAgain.body.error.message).toBe('作业当前状态 completed，不能停止');
+    const resumeTrailBefore = await jobTrail(first.body.id, 'resume');
+    const resumeCompleted = await call<ErrorBody>('POST', `${firstPath}/resume`, owner);
+    expectError(resumeCompleted, 409, 'JOB_NOT_RESUMABLE');
+    expect(resumeCompleted.body.error.message).toBe(
+      '作业当前状态 completed，只有暂停或中断的作业可以恢复',
+    );
+    expect(await jobTrail(first.body.id, 'stop')).toEqual(stopTrailBefore);
+    expect(await jobTrail(first.body.id, 'resume')).toEqual(resumeTrailBefore);
+
+    await sql`UPDATE automation_jobs SET status = 'failed' WHERE id = ${first.body.id}`;
+    const failedStop = await call<ErrorBody>('POST', `${firstPath}/stop`, owner);
+    expectError(failedStop, 409, 'JOB_NOT_STOPPABLE');
+    expect(failedStop.body.error.message).toBe('作业当前状态 failed，不能停止');
+    expect(await jobTrail(first.body.id, 'stop')).toEqual(stopTrailBefore);
+
+    // ⑤ 第一份作业已是终态，同一授权还能再建一份：闸拦的是状态，不是作业条数。
+    const second = await createJob(mandate.id, [chapterId('互斥丙章')]);
+    expect(second.status).toBe(200);
+    const secondPath = `/api/automation/jobs/${second.body.id}`;
+
+    // ⑤ 恢复的两道检查里授权先响：过期授权 + 排队作业同时命中，回答是 MANDATE_EXPIRED
+    //    而不是 JOB_NOT_RESUMABLE（:965 排在 :967 之前）；被拒的这次不改作业状态。
+    await sql`
+      UPDATE automation_mandates SET expires_at = now() - interval '1 minute'
+      WHERE id = ${mandate.id}
+    `;
+    const expiredResume = await call<ErrorBody>('POST', `${secondPath}/resume`, owner);
+    expectError(expiredResume, 409, 'MANDATE_EXPIRED');
+    expect(await jobStatus(second.body.id)).toBe('queued');
+    expect(await mandateRow(mandate.id)).toEqual({ status: 'expired', future: false });
+    expect(await jobTrail(second.body.id, 'resume')).toEqual({ audits: '0', events: '0' });
+
+    // ⑥ stopped 是幂等收口：第二次停止返回同一状态，不再落第二份痕迹。
+    const stopped = await call<AutomationJobView>('POST', `${secondPath}/stop`, owner);
+    expect(stopped.status).toBe(200);
+    expect(stopped.body.status).toBe('stopped');
+    expect(stopped.body.stopRequested).toBe(true);
+    expect(stopped.body.completedAt).toBeTruthy();
+    expect(await jobTrail(second.body.id, 'stop')).toEqual({ audits: '1', events: '1' });
+    const stoppedTwice = await call<AutomationJobView>('POST', `${secondPath}/stop`, owner);
+    expect(stoppedTwice.status).toBe(200);
+    expect(stoppedTwice.body.status).toBe('stopped');
+    expect(await jobTrail(second.body.id, 'stop')).toEqual({ audits: '1', events: '1' });
+    expect(stubRequests).toHaveLength(0);
+
+    // ⑦ 这一族收口后工作区不留活跃作业，下一枪的并发前提是干净的。
+    expect(await activeJobCount()).toBe('0');
+  });
+
+  it('预检之后、抢锁之前冒出来的并发作业，被事务内的第二道闸挡在 409', async () => {
+    stubRequests = [];
+    const mandate = await createMandate({ name: '竞态授权' });
+    const ownerId = (
+      await sql<{ id: string }[]>`SELECT id FROM users WHERE email = ${`owner${TEST_EMAIL_SUFFIX}`}`
+    )[0]!.id;
+
+    async function waitUntil(predicate: () => Promise<boolean>, timeoutMs: number): Promise<boolean> {
+      const deadline = Date.now() + timeoutMs;
+      for (;;) {
+        if (await predicate()) return true;
+        if (Date.now() >= deadline) return false;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+    }
+
+    async function advisoryLocks(granted: boolean): Promise<boolean> {
+      const rows = await sql<{ n: string }[]>`
+        SELECT count(*)::text AS n FROM pg_locks l
+        JOIN pg_stat_activity a ON a.pid = l.pid
+        WHERE l.locktype = 'advisory' AND l.granted = ${granted}
+          AND a.datname = current_database()
+      `;
+      return Number(rows[0]!.n) > 0;
+    }
+
+    async function conflictTrail(): Promise<{ audits: string; events: string; jobs: string }> {
+      const rows = await sql<{ audits: string; events: string; jobs: string }[]>`
+        SELECT
+          (SELECT count(*)::text FROM audit_log WHERE action = 'automation.job.create'
+             AND object_id IN (SELECT id FROM automation_jobs WHERE mandate_id = ${mandate.id})) AS audits,
+          (SELECT count(*)::text FROM events WHERE event_type = 'automation.job.queued'
+             AND aggregate_id IN (SELECT id FROM automation_jobs WHERE mandate_id = ${mandate.id})) AS events,
+          (SELECT count(*)::text FROM automation_jobs WHERE mandate_id = ${mandate.id}) AS jobs
+      `;
+      return rows[0]!;
+    }
+
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let pending: Promise<ApiResult<AutomationJobView>> | null = null;
+    try {
+      // 先在事务里占住这把工作区级咨询锁，让被测请求必然卡在 :832，
+      // 于是"预检已读过、事务还没进"这段窗口被稳定拉开。
+      const blocker = sql.begin(async (tx) => {
+        await tx`
+          SELECT pg_advisory_xact_lock(hashtextextended(${`automation:${workspaceId}`}, 0))
+        `;
+        await gate;
+      });
+      expect(await waitUntil(() => advisoryLocks(true), 3_000)).toBe(true);
+
+      pending = createJob(mandate.id, [chapterId('竞态甲章')]);
+      // granted=false 的那一行就是被测事务：它存在，说明预检（:820）已经读过"没有活跃作业"。
+      expect(await waitUntil(() => advisoryLocks(false), 3_000)).toBe(true);
+
+      // 预检读完之后才把竞争作业提交：事务里那道同谓词检查（:833）现在必须看见它。
+      await sql`
+        INSERT INTO automation_jobs (
+          id, workspace_id, work_id, mandate_id, status, total_chapters, cost_currency, created_by
+        )
+        VALUES (${randomUUID()}, ${workspaceId}, ${workId}, ${mandate.id}, 'queued', 1, 'CNY', ${ownerId})
+      `;
+      release();
+      const raced = await pending;
+      pending = null;
+
+      expectError(raced, 409, 'AUTOMATION_JOB_CONFLICT');
+      expect((raced.body as unknown as ErrorBody).error.message).toBe(
+        '当前工作区已有进行中的自动化作业',
+      );
+      // 拒绝发生在 INSERT 之前：这个授权下只有那条手工插入的竞争作业，零审计零事件。
+      expect(await conflictTrail()).toEqual({ audits: '0', events: '0', jobs: '1' });
+      expect(stubRequests).toHaveLength(0);
+
+      // 正控制：竞争作业收口之后，同一授权照样能建作业——这道闸拦的是"活跃作业"，
+      // 不是"这个授权的第二份作业"。
+      await sql`
+        UPDATE automation_jobs SET status = 'stopped', completed_at = now()
+        WHERE mandate_id = ${mandate.id} AND status IN ('queued', 'running', 'paused')
+      `;
+      const after = await createJob(mandate.id, [chapterId('竞态甲章')]);
+      expect(after.status).toBe(200);
+      expect(after.body.status).toBe('queued');
+      expect(await conflictTrail()).toEqual({ audits: '1', events: '1', jobs: '2' });
+      await stopIfActive(after.body.id);
+    } finally {
+      release();
+      if (pending) await pending;
+      await sql`
+        UPDATE automation_jobs SET status = 'stopped', completed_at = now()
+        WHERE mandate_id = ${mandate.id} AND status IN ('queued', 'running', 'paused')
+      `;
+    }
+  }, 25_000);
 });
