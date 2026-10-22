@@ -1,0 +1,415 @@
+{
+  "generatedAt": "2026-10-22T16:30:06.400Z",
+  "base": "http://127.0.0.1:3101",
+  "database": "yunshuo_test",
+  "runId": "bfd65ab6",
+  "runLabel": "smoke",
+  "scenario": "千章规模索引与检索：导入 20 章 × 600 字，真实 worker 排空 outbox，再用本机嵌入服务做词法与混合检索",
+  "workTitle": "索引压测作品 bfd65ab6",
+  "cleanupWindowStart": "2026-10-22 16:29:18.293915+00",
+  "config": {
+    "chapterTarget": 20,
+    "charsPerChapter": 600,
+    "importBatchSize": 1000,
+    "pollMs": 3000,
+    "timeoutMs": 180000,
+    "embedBaseUrl": "http://127.0.0.1:11434/v1",
+    "embedModel": "bge-m3:latest",
+    "repeatsPerQuery": 3,
+    "automationRunner": "关闭（AUTOMATION_RUNNER=0，独立实例指向 yunshuo_test）"
+  },
+  "caveats": [
+    "合成正文：同一组 8 句 filler 循环拼接，切块边界与真实小说不同，检索命中也不具备语义难度。",
+    "单台机器上的单个 worker，POLL_MS 之间的采样是瞬时值而不是持续吞吐。",
+    "嵌入服务为本机模型，输入价填 0，成本数字不代表任何付费服务商。",
+    "本轮没有并发读写混合，也没有 Studio 容器内测量。"
+  ],
+  "baselineCounts": {
+    "works": 1,
+    "chapters": 2,
+    "canon_versions": 1,
+    "canon_current": 1,
+    "canon_chunks": 0,
+    "chunk_embeddings": 0,
+    "index_status": 1,
+    "ledger_chunks": 0,
+    "ledger_index_status": 0,
+    "outbox": 0,
+    "model_calls": 0,
+    "providers": 0,
+    "sessions": 0,
+    "events": 3,
+    "audit": 119
+  },
+  "embedServiceProbe": {
+    "reachable": true,
+    "modelSeenInList": true
+  },
+  "import": {
+    "batches": [
+      {
+        "chapterCount": 20,
+        "importMs": 119,
+        "requestBodyBytes": 36296,
+        "storedWordCount": 11000
+      }
+    ],
+    "totalChapters": 20,
+    "totalImportMs": 119
+  },
+  "queueStart": {
+    "at": "2026-10-22T16:29:18.449Z",
+    "indexStatus": "pending=20",
+    "outbox": "pending=10,processing=10"
+  },
+  "drain": {
+    "fullyDrained": true,
+    "timedOut": false,
+    "elapsedMs": 41988,
+    "chaptersPerMinute": 28.6,
+    "samples": [
+      {
+        "elapsedMs": 0,
+        "elapsedSec": 0,
+        "indexStatus": "indexing=1,pending=19",
+        "outbox": "pending=10,processing=10",
+        "canonChunks": 0,
+        "chunkEmbeddings": 0,
+        "workerRssMb": 83.9,
+        "apiRssMb": 97.4
+      },
+      {
+        "elapsedMs": 5150,
+        "elapsedSec": 5,
+        "indexStatus": "indexing=1,pending=17,ready=2",
+        "outbox": "pending=10,processed=2,processing=8",
+        "canonChunks": 4,
+        "chunkEmbeddings": 6,
+        "workerRssMb": 84.3,
+        "apiRssMb": 97.4
+      },
+      {
+        "elapsedMs": 10471,
+        "elapsedSec": 10,
+        "indexStatus": "indexing=1,pending=14,ready=5",
+        "outbox": "pending=10,processed=5,processing=5",
+        "canonChunks": 10,
+        "chunkEmbeddings": 10,
+        "workerRssMb": 84.9,
+        "apiRssMb": 97.4
+      },
+      {
+        "elapsedMs": 15755,
+        "elapsedSec": 16,
+        "indexStatus": "indexing=1,pending=11,ready=8",
+        "outbox": "pending=10,processed=8,processing=2",
+        "canonChunks": 16,
+        "chunkEmbeddings": 16,
+        "workerRssMb": 85.3,
+        "apiRssMb": 97.4
+      },
+      {
+        "elapsedMs": 21073,
+        "elapsedSec": 21,
+        "indexStatus": "indexing=1,pending=9,ready=10",
+        "outbox": "processed=10,processing=10",
+        "canonChunks": 20,
+        "chunkEmbeddings": 20,
+        "workerRssMb": 85.8,
+        "apiRssMb": 97.4
+      },
+      {
+        "elapsedMs": 26369,
+        "elapsedSec": 26,
+        "indexStatus": "indexing=1,pending=6,ready=13",
+        "outbox": "processed=13,processing=7",
+        "canonChunks": 26,
+        "chunkEmbeddings": 26,
+        "workerRssMb": 85.9,
+        "apiRssMb": 97.4
+      },
+      {
+        "elapsedMs": 31578,
+        "elapsedSec": 32,
+        "indexStatus": "indexing=1,pending=4,ready=15",
+        "outbox": "processed=15,processing=5",
+        "canonChunks": 32,
+        "chunkEmbeddings": 32,
+        "workerRssMb": 86.6,
+        "apiRssMb": 97.4
+      },
+      {
+        "elapsedMs": 36689,
+        "elapsedSec": 37,
+        "indexStatus": "indexing=1,pending=1,ready=18",
+        "outbox": "processed=18,processing=2",
+        "canonChunks": 36,
+        "chunkEmbeddings": 36,
+        "workerRssMb": 86.3,
+        "apiRssMb": 97.4
+      },
+      {
+        "elapsedMs": 41988,
+        "elapsedSec": 42,
+        "indexStatus": "ready=20",
+        "outbox": "processed=20",
+        "canonChunks": 40,
+        "chunkEmbeddings": 40,
+        "workerRssMb": 86.3,
+        "apiRssMb": 97.4
+      }
+    ]
+  },
+  "indexDetail": "压测嵌入 smoke/bge-m3:latest dim=1024 chunks=2 | 压测嵌入 smoke/bge-m3:latest dim=1024 chunks=2 | 压测嵌入 smoke/bge-m3:latest dim=1024 chunks=2",
+  "chunkStats": "chunks_per_chapter_avg=2.00 max=2 min=2",
+  "embeddingCoverage": "vector_chunks=40 of canon_chunks=40",
+  "embedCalls": "n=20 ok=0 prompt_tokens=11504 cost=0.0000 CNY latency_med=1958",
+  "retrieval": [
+    {
+      "mode": "lexical",
+      "label": "原文片段",
+      "queryChars": 11,
+      "medianMs": 31,
+      "samples": [
+        294,
+        31,
+        30
+      ],
+      "results": 8,
+      "topChapterNumber": 1,
+      "topLexicalScore": 3,
+      "topVectorScore": null,
+      "topRrfScore": 0.016393,
+      "modeUsed": "lexical",
+      "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+      "coverage": {
+        "totalCanonChapters": 20,
+        "ready": 20,
+        "chunks": 40,
+        "vectorChunks": 40,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 4533
+    },
+    {
+      "mode": "lexical",
+      "label": "关键词",
+      "queryChars": 8,
+      "medianMs": 28,
+      "samples": [
+        28,
+        20,
+        28
+      ],
+      "results": 8,
+      "topChapterNumber": 1,
+      "topLexicalScore": 0.9,
+      "topVectorScore": null,
+      "topRrfScore": 0.016393,
+      "modeUsed": "lexical",
+      "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+      "coverage": {
+        "totalCanonChapters": 20,
+        "ready": 20,
+        "chunks": 40,
+        "vectorChunks": 40,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 4549
+    },
+    {
+      "mode": "lexical",
+      "label": "近似改写",
+      "queryChars": 11,
+      "medianMs": 31,
+      "samples": [
+        31,
+        31,
+        31
+      ],
+      "results": 8,
+      "topChapterNumber": 1,
+      "topLexicalScore": 2.7,
+      "topVectorScore": null,
+      "topRrfScore": 0.016393,
+      "modeUsed": "lexical",
+      "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+      "coverage": {
+        "totalCanonChapters": 20,
+        "ready": 20,
+        "chunks": 40,
+        "vectorChunks": 40,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 4550
+    },
+    {
+      "mode": "lexical",
+      "label": "域外对照",
+      "queryChars": 11,
+      "medianMs": 15,
+      "samples": [
+        24,
+        15,
+        11
+      ],
+      "results": 0,
+      "topChapterNumber": null,
+      "topLexicalScore": null,
+      "topVectorScore": null,
+      "topRrfScore": null,
+      "modeUsed": "lexical",
+      "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+      "coverage": {
+        "totalCanonChapters": 20,
+        "ready": 20,
+        "chunks": 40,
+        "vectorChunks": 40,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 425
+    },
+    {
+      "mode": "auto",
+      "label": "原文片段",
+      "queryChars": 11,
+      "medianMs": 233,
+      "samples": [
+        294,
+        227,
+        233
+      ],
+      "results": 8,
+      "topChapterNumber": 8,
+      "topLexicalScore": 3,
+      "topVectorScore": 0.641687,
+      "topRrfScore": 0.031281,
+      "modeUsed": "hybrid",
+      "semanticReason": null,
+      "coverage": {
+        "totalCanonChapters": 20,
+        "ready": 20,
+        "chunks": 40,
+        "vectorChunks": 40,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 4517
+    },
+    {
+      "mode": "auto",
+      "label": "关键词",
+      "queryChars": 8,
+      "medianMs": 222,
+      "samples": [
+        216,
+        222,
+        241
+      ],
+      "results": 8,
+      "topChapterNumber": 6,
+      "topLexicalScore": 0.9,
+      "topVectorScore": 0.642013,
+      "topRrfScore": 0.032266,
+      "modeUsed": "hybrid",
+      "semanticReason": null,
+      "coverage": {
+        "totalCanonChapters": 20,
+        "ready": 20,
+        "chunks": 40,
+        "vectorChunks": 40,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 4541
+    },
+    {
+      "mode": "auto",
+      "label": "近似改写",
+      "queryChars": 11,
+      "medianMs": 211,
+      "samples": [
+        215,
+        204,
+        211
+      ],
+      "results": 8,
+      "topChapterNumber": 1,
+      "topLexicalScore": 2.7,
+      "topVectorScore": 0.63054,
+      "topRrfScore": 0.031545,
+      "modeUsed": "hybrid",
+      "semanticReason": null,
+      "coverage": {
+        "totalCanonChapters": 20,
+        "ready": 20,
+        "chunks": 40,
+        "vectorChunks": 40,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 4543
+    },
+    {
+      "mode": "auto",
+      "label": "域外对照",
+      "queryChars": 11,
+      "medianMs": 217,
+      "samples": [
+        210,
+        218,
+        217
+      ],
+      "results": 0,
+      "topChapterNumber": null,
+      "topLexicalScore": null,
+      "topVectorScore": null,
+      "topRrfScore": null,
+      "modeUsed": "lexical",
+      "semanticReason": "向量最高相似度 0.306 低于阈值 0.400，本次仅用词法检索",
+      "coverage": {
+        "totalCanonChapters": 20,
+        "ready": 20,
+        "chunks": 40,
+        "vectorChunks": 40,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 438
+    }
+  ],
+  "countsAfterRun": {
+    "works": 2,
+    "chapters": 22,
+    "canon_versions": 21,
+    "canon_current": 21,
+    "canon_chunks": 40,
+    "chunk_embeddings": 40,
+    "index_status": 21,
+    "ledger_chunks": 0,
+    "ledger_index_status": 0,
+    "outbox": 20,
+    "model_calls": 32,
+    "providers": 1,
+    "sessions": 1,
+    "events": 23,
+    "audit": 141
+  },
+  "cleanupNote": "临时服务商的 model_calls 共 32 条，与服务商行一并按 id 删除（真实用量已先写入本报告 embedCalls）",
+  "countsAfterCleanup": {
+    "works": 1,
+    "chapters": 2,
+    "canon_versions": 1,
+    "canon_current": 1,
+    "canon_chunks": 0,
+    "chunk_embeddings": 0,
+    "index_status": 1,
+    "ledger_chunks": 0,
+    "ledger_index_status": 0,
+    "outbox": 0,
+    "model_calls": 0,
+    "providers": 0,
+    "sessions": 0,
+    "events": 3,
+    "audit": 120
+  },
+  "cleanupDrift": {
+    "audit": "119 -> 120"
+  }
+}
