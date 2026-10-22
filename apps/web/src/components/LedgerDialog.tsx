@@ -815,7 +815,7 @@ export function LedgerDialog({ me, chapters, onClose }: Props) {
 
         <footer className="modal-foot">
           <span className="commit-foot-hint">
-            设定、角色与伏笔按工作区隔离；已发布版本不可修改，所有写入进入审计。角色状态与伏笔提醒已接入写作台只读提示，尚未接入检索与门禁。
+            设定、角色与伏笔按工作区隔离；已发布版本不可修改，所有写入进入审计。已发布条目接入检索、AI 上下文引用与门禁提示，提示不改变门禁结论。
           </span>
           <button type="button" className="button button-quiet" onClick={onClose}>
             关闭

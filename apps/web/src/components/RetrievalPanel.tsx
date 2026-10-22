@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { SearchResponse } from '@yunshuo/contracts';
 import { ApiError, searchCanon } from '../api.js';
+import { LEDGER_KIND_LABELS, LEDGER_SCOPE_LABELS } from '../ledger.js';
 import { Badge } from './Badge.js';
 
 interface Props {
@@ -36,13 +37,14 @@ export function RetrievalPanel({ workId, chapterId, onOpenChapter }: Props) {
 
   const result = searchQuery.data;
   const coverage = result?.coverage;
+  const ledgerCoverage = result?.ledgerCoverage;
 
   return (
     <section className="panel retrieval-panel">
       <header className="panel-head">
         <div>
           <p className="eyebrow">跨章检索</p>
-          <h2>正典检索</h2>
+          <h2>正典与账本检索</h2>
         </div>
         {result ? (
           <Badge tone={result.mode === 'hybrid' ? 'green' : 'amber'}>
@@ -90,55 +92,113 @@ export function RetrievalPanel({ workId, chapterId, onOpenChapter }: Props) {
             </div>
           ) : null}
 
+          {ledgerCoverage ? (
+            <div className="retrieval-coverage retrieval-ledger-coverage">
+              <span>
+                账本可检索 {ledgerCoverage.indexedEntries}/{ledgerCoverage.activeEntries} 条
+              </span>
+              <span>可检索 {ledgerCoverage.chunks} 块</span>
+              <span>向量 {ledgerCoverage.vectorModel ?? '未建立'}</span>
+            </div>
+          ) : null}
+
           {result.mode === 'lexical' && result.semanticReason ? (
             <p className="retrieval-reason">本次未使用语义通道：{result.semanticReason}</p>
           ) : null}
 
-          {result.results.length === 0 ? (
+          {result.ledgerReason ? (
+            <p className="retrieval-reason">账本检索：{result.ledgerReason}</p>
+          ) : null}
+
+          {result.results.length === 0 && result.ledgerResults.length === 0 ? (
             <p className="muted">
               {coverage && coverage.chunks === 0
                 ? '当前没有可检索的正典片段。请先在服务商设置中配置“嵌入”用途的服务商，再重建索引。'
-                : '没有命中的正典片段。可以换一个关键词，或确认相关章节已完成索引。'}
+                : '没有命中的正典片段或账本条目。可以换一个关键词，或确认相关章节与账本已完成索引。'}
             </p>
           ) : (
-            <ul className="retrieval-results">
-              {result.results.map((item) => (
-                <li key={item.chunkId}>
-                  <button
-                    type="button"
-                    className={`retrieval-item${item.chapterId === chapterId ? ' retrieval-item-current' : ''}`}
-                    onClick={() => onOpenChapter(item.chapterId)}
-                    title={
-                      item.chapterId === chapterId
-                        ? '当前章节'
-                        : '切换到该章节（显示其当前正典）'
-                    }
-                  >
-                    <span className="retrieval-item-head">
-                      <strong>
-                        第 {item.chapterNumber} 章 · {item.chapterTitle}
-                      </strong>
-                      <span className="retrieval-item-meta">
-                        v{item.versionNo} · 第 {item.paragraphStart}-{item.paragraphEnd} 段
-                      </span>
-                    </span>
-                    <span className="retrieval-excerpt">{item.excerpt}</span>
-                    <span className="retrieval-channels">
-                      {item.lexicalRank !== null ? (
-                        <Badge tone="ink">词法 #{item.lexicalRank}</Badge>
-                      ) : null}
-                      {item.vectorRank !== null ? (
-                        <Badge tone="green">向量 #{item.vectorRank}</Badge>
-                      ) : null}
-                      <span className="muted">RRF {item.rrfScore.toFixed(4)}</span>
-                      {item.chapterId === chapterId ? (
-                        <span className="muted">当前章</span>
-                      ) : null}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
+            <>
+              {result.results.length === 0 ? (
+                <p className="muted">没有命中的正典片段。</p>
+              ) : (
+                <ul className="retrieval-results">
+                  {result.results.map((item) => (
+                    <li key={item.chunkId}>
+                      <button
+                        type="button"
+                        className={`retrieval-item${item.chapterId === chapterId ? ' retrieval-item-current' : ''}`}
+                        onClick={() => onOpenChapter(item.chapterId)}
+                        title={
+                          item.chapterId === chapterId
+                            ? '当前章节'
+                            : '切换到该章节（显示其当前正典）'
+                        }
+                      >
+                        <span className="retrieval-item-head">
+                          <strong>
+                            第 {item.chapterNumber} 章 · {item.chapterTitle}
+                          </strong>
+                          <span className="retrieval-item-meta">
+                            v{item.versionNo} · 第 {item.paragraphStart}-{item.paragraphEnd} 段
+                          </span>
+                        </span>
+                        <span className="retrieval-excerpt">{item.excerpt}</span>
+                        <span className="retrieval-channels">
+                          {item.lexicalRank !== null ? (
+                            <Badge tone="ink">词法 #{item.lexicalRank}</Badge>
+                          ) : null}
+                          {item.vectorRank !== null ? (
+                            <Badge tone="green">向量 #{item.vectorRank}</Badge>
+                          ) : null}
+                          <span className="muted">RRF {item.rrfScore.toFixed(4)}</span>
+                          {item.chapterId === chapterId ? (
+                            <span className="muted">当前章</span>
+                          ) : null}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {result.ledgerResults.length > 0 ? (
+                <div className="retrieval-ledger-block">
+                  <p className="eyebrow retrieval-ledger-title">设定、角色与伏笔</p>
+                  <ul className="retrieval-results">
+                    {result.ledgerResults.map((item) => (
+                      <li key={item.chunkId}>
+                        <div className="retrieval-item retrieval-ledger-item">
+                          <span className="retrieval-item-head">
+                            <strong>
+                              {LEDGER_KIND_LABELS[item.kind]} · {item.name}
+                            </strong>
+                            <span className="retrieval-item-meta">
+                              v{item.versionNo} · {LEDGER_SCOPE_LABELS[item.scope]}
+                              {item.sourceChapterNumber !== null
+                                ? ` · 源自第 ${item.sourceChapterNumber} 章`
+                                : ''}
+                            </span>
+                          </span>
+                          <span className="retrieval-excerpt">{item.excerpt}</span>
+                          <span className="retrieval-channels">
+                            {item.lexicalRank !== null ? (
+                              <Badge tone="ink">词法 #{item.lexicalRank}</Badge>
+                            ) : null}
+                            {item.vectorRank !== null ? (
+                              <Badge tone="green">向量 #{item.vectorRank}</Badge>
+                            ) : null}
+                            <span className="muted">RRF {item.rrfScore.toFixed(4)}</span>
+                            {item.aliases.length > 0 ? (
+                              <span className="muted">别名：{item.aliases.join('、')}</span>
+                            ) : null}
+                          </span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </>
           )}
         </>
       ) : (

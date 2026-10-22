@@ -39,6 +39,7 @@ import {
 import { assertCanReadLedger, assertCanWriteLedger, type AuthContext } from '../auth.js';
 import { badRequest, conflict, notFound } from '../errors.js';
 import { iso } from '../views.js';
+import { enqueueLedgerIndex } from './index-queue.js';
 
 type Executor = Sql<Record<string, unknown>> | TransactionSql<Record<string, unknown>>;
 
@@ -1006,6 +1007,7 @@ export async function publishLedgerEntry(
         WHERE id = ${workspaceId}
       `;
     }
+    await enqueueLedgerIndex(tx, workspaceId, entryId, draft.id);
     await writeAudit(tx, auth, 'ledger.entry.publish', entryId, {
       versionNo: draft.version_no,
       previousVersionNo: previousVersion?.version_no ?? null,
@@ -1067,6 +1069,15 @@ export async function archiveLedgerEntry(
           UPDATE workspaces SET ledger_version = ledger_version + 1
           WHERE id = ${workspaceId}
         `;
+      }
+      if (entry.current_version_id) {
+        await enqueueLedgerIndex(
+          tx,
+          workspaceId,
+          entryId,
+          entry.current_version_id,
+          '条目已归档，等待 worker 移除检索投影',
+        );
       }
     }
     await writeAudit(tx, auth, 'ledger.entry.archive', entryId, {

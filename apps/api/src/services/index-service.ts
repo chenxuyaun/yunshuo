@@ -4,11 +4,14 @@ import type { ReindexResponse } from '@yunshuo/contracts';
 import type { Role } from '@yunshuo/domain';
 import type { AuthContext } from '../auth.js';
 import { conflict, forbidden, notFound } from '../errors.js';
+import {
+  enqueueChapterIndex,
+  enqueueLedgerIndex,
+  type CanonChapterIndexRow,
+} from './index-queue.js';
 
-const REINDEX_DETAIL = '手工重建索引已排队，等待 worker';
-
-interface CanonChapterRow {
-  chapter_id: string;
+interface LedgerIndexRow {
+  entry_id: string;
   version_id: string;
 }
 
@@ -22,55 +25,6 @@ function assertOwner(role: Role): void {
   if (role !== 'owner') {
     throw forbidden('仅所有者可以重建整个工作区的索引');
   }
-}
-
-interface EnqueueResult {
-  queued: number;
-  alreadyQueued: number;
-}
-
-async function enqueueChapter(
-  tx: TransactionSql<any>,
-  workspaceId: string,
-  row: CanonChapterRow,
-): Promise<EnqueueResult> {
-  const inserted = await tx<{ id: number }[]>`
-    INSERT INTO outbox (event_type, payload, dedupe_key, next_attempt_at)
-    VALUES (
-      'index.chapter',
-      ${tx.json(jsonValue({
-        chapterId: row.chapter_id,
-        versionId: row.version_id,
-        workspaceId,
-      }))},
-      ${`index:${row.version_id}:reindex`},
-      now()
-    )
-    ON CONFLICT (dedupe_key) DO UPDATE
-      SET status = 'pending',
-          payload = EXCLUDED.payload,
-          attempts = 0,
-          next_attempt_at = now(),
-          locked_at = NULL,
-          processed_at = NULL,
-          last_error = NULL
-      WHERE outbox.status IN ('processed', 'failed')
-    RETURNING id
-  `;
-  if (inserted.length === 0) {
-    return { queued: 0, alreadyQueued: 1 };
-  }
-
-  await tx`
-    INSERT INTO index_status (chapter_id, version_id, status, detail, updated_at)
-    VALUES (${row.chapter_id}, ${row.version_id}, 'pending', ${REINDEX_DETAIL}, now())
-    ON CONFLICT (chapter_id) DO UPDATE
-      SET version_id = EXCLUDED.version_id, status = 'pending',
-          detail = EXCLUDED.detail, chunk_count = 0, provider_name = NULL,
-          model = NULL, dimensions = NULL, attempts = 0,
-          next_retry_at = NULL, last_error = NULL, updated_at = now()
-  `;
-  return { queued: 1, alreadyQueued: 0 };
 }
 
 async function writeReindexAudit(
@@ -98,7 +52,7 @@ export async function reindexChapter(
   assertCanReindex(auth.role);
 
   const enqueue = await sql.begin(async (tx) => {
-    const rows = await tx<CanonChapterRow[]>`
+    const rows = await tx<CanonChapterIndexRow[]>`
       SELECT c.id AS chapter_id, cc.version_id
       FROM chapters c
       JOIN works w ON w.id = c.work_id
@@ -116,7 +70,7 @@ export async function reindexChapter(
       if (!existing[0]) throw notFound('CHAPTER_NOT_FOUND', '章节不存在或不属于当前工作区');
       throw conflict('CHAPTER_NO_CANON', '章节还没有正典版本，无法重建索引');
     }
-    const result = await enqueueChapter(tx, auth.workspace.id, row);
+    const result = await enqueueChapterIndex(tx, auth.workspace.id, row);
     await writeReindexAudit(tx, auth, 'chapter', chapterId, {
       versionId: row.version_id,
       queued: result.queued,
@@ -144,7 +98,7 @@ export async function reindexWorkspace(
 
   const result = await sql.begin(async (tx) => {
     const rows = workId
-      ? await tx<CanonChapterRow[]>`
+      ? await tx<CanonChapterIndexRow[]>`
           SELECT c.id AS chapter_id, cc.version_id
           FROM chapters c
           JOIN works w ON w.id = c.work_id
@@ -152,7 +106,7 @@ export async function reindexWorkspace(
           WHERE w.workspace_id = ${auth.workspace.id} AND c.work_id = ${workId}
           ORDER BY c.number ASC
         `
-      : await tx<CanonChapterRow[]>`
+      : await tx<CanonChapterIndexRow[]>`
           SELECT c.id AS chapter_id, cc.version_id
           FROM chapters c
           JOIN works w ON w.id = c.work_id
@@ -161,13 +115,47 @@ export async function reindexWorkspace(
           ORDER BY c.number ASC
         `;
 
-    let queued = 0;
-    let alreadyQueued = 0;
+    let chapterQueued = 0;
+    let chapterAlreadyQueued = 0;
     for (const row of rows) {
-      const result = await enqueueChapter(tx, auth.workspace.id, row);
-      queued += result.queued;
-      alreadyQueued += result.alreadyQueued;
+      const result = await enqueueChapterIndex(tx, auth.workspace.id, row);
+      chapterQueued += result.queued;
+      chapterAlreadyQueued += result.alreadyQueued;
     }
+
+    const ledgerRows = workId
+      ? await tx<LedgerIndexRow[]>`
+          SELECT e.id AS entry_id, e.current_version_id AS version_id
+          FROM ledger_entries e
+          WHERE e.workspace_id = ${auth.workspace.id}
+            AND e.status = 'active'
+            AND e.current_version_id IS NOT NULL
+            AND (e.work_id = ${workId} OR (e.kind = 'setting' AND e.work_id IS NULL))
+          ORDER BY e.name ASC
+        `
+      : await tx<LedgerIndexRow[]>`
+          SELECT e.id AS entry_id, e.current_version_id AS version_id
+          FROM ledger_entries e
+          WHERE e.workspace_id = ${auth.workspace.id}
+            AND e.status = 'active'
+            AND e.current_version_id IS NOT NULL
+          ORDER BY e.name ASC
+        `;
+
+    let ledgerQueued = 0;
+    let ledgerAlreadyQueued = 0;
+    for (const row of ledgerRows) {
+      const result = await enqueueLedgerIndex(
+        tx,
+        auth.workspace.id,
+        row.entry_id,
+        row.version_id,
+      );
+      ledgerQueued += result.queued;
+      ledgerAlreadyQueued += result.alreadyQueued;
+    }
+    const queued = chapterQueued + ledgerQueued;
+    const alreadyQueued = chapterAlreadyQueued + ledgerAlreadyQueued;
 
     const skippedRows = workId
       ? await tx<{ count: number }[]>`
@@ -192,15 +180,31 @@ export async function reindexWorkspace(
       queued,
       alreadyQueued,
       skipped,
+      ledgerQueued,
+      ledgerAlreadyQueued,
     });
-    return { queued, alreadyQueued, skipped };
+    return {
+      queued,
+      alreadyQueued,
+      skipped,
+      chapterQueued,
+      chapterAlreadyQueued,
+      ledgerQueued,
+      ledgerAlreadyQueued,
+    };
   });
 
   const parts: string[] = [];
-  if (result.queued > 0) parts.push(`已排队 ${result.queued} 章重建索引`);
-  if (result.alreadyQueued > 0) parts.push(`${result.alreadyQueued} 章索引任务已在队列中`);
+  if (result.chapterQueued > 0) parts.push(`已排队 ${result.chapterQueued} 章重建索引`);
+  if (result.ledgerQueued > 0) parts.push(`已排队 ${result.ledgerQueued} 个账本条目重建索引`);
+  if (result.chapterAlreadyQueued > 0) {
+    parts.push(`${result.chapterAlreadyQueued} 章索引任务已在队列中`);
+  }
+  if (result.ledgerAlreadyQueued > 0) {
+    parts.push(`${result.ledgerAlreadyQueued} 个账本条目索引任务已在队列中`);
+  }
   if (result.skipped > 0) parts.push(`${result.skipped} 章尚无正典已跳过`);
-  const summary = parts.length > 0 ? parts.join('；') : '没有可重建索引的正典章节';
+  const summary = parts.length > 0 ? parts.join('；') : '没有可重建索引的正典章节或账本条目';
   return {
     queued: result.queued,
     alreadyQueued: result.alreadyQueued,

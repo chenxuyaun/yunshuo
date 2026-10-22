@@ -1,6 +1,12 @@
 import type { GateEvaluationView } from '@yunshuo/contracts';
 import { formatDateTime, shortHash } from '../format.js';
+import { LEDGER_KIND_LABELS, LEDGER_SCOPE_LABELS } from '../ledger.js';
 import { GateStatusBadge, Badge } from './Badge.js';
+
+const GATE_HINT_LABELS = {
+  core_entity: '核心实体',
+  causality: '因果律',
+} as const;
 
 interface Props {
   evaluation: GateEvaluationView | null;
@@ -69,6 +75,43 @@ export function GatePanel({ evaluation, draftHash, isDirty }: Props) {
               </li>
             ))}
           </ul>
+
+          {evaluation.hints.length > 0 ? (
+            <div className="gate-hints">
+              <div className="gate-hints-head">
+                <strong>账本提示</strong>
+                <Badge tone="amber">不参与硬门禁结论</Badge>
+              </div>
+              <p className="gate-hints-note">
+                以下信息来自已发布的设定、角色与伏笔，只帮助人工复核；通过或未通过仍以上面的硬门禁为准。
+              </p>
+              {evaluation.hints.map((hint) => (
+                <div key={hint.gate} className="gate-hint">
+                  <div className="gate-hint-head">
+                    <span className="gate-hint-gate">{GATE_HINT_LABELS[hint.gate]}</span>
+                    <span className="muted">提示</span>
+                  </div>
+                  <p className="gate-hint-message">{hint.message}</p>
+                  {hint.entries.length > 0 ? (
+                    <ul className="gate-hint-entries">
+                      {hint.entries.map((entry) => (
+                        <li key={entry.id}>
+                          <Badge tone="ink">{LEDGER_KIND_LABELS[entry.kind]}</Badge>
+                          <span>{entry.name}</span>
+                          <span className="muted">
+                            v{entry.versionNo} · {LEDGER_SCOPE_LABELS[entry.scope]}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {hint.terms.length > 0 ? (
+                    <p className="gate-hint-terms">命中：{hint.terms.join('、')}</p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
         </>
       ) : (
         <div className="empty-state">

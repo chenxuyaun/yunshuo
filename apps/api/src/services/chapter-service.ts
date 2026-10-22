@@ -14,6 +14,7 @@ import type {
   ChapterListItem,
   DraftView,
   GateEvaluationView,
+  GateHintView,
   LeaseResponse,
   SaveDraftResponse,
   StageResponse,
@@ -35,6 +36,7 @@ import {
   isLeaseActive,
   upsertLease,
 } from './chapter-data.js';
+import { loadGateHints } from './ledger-context-service.js';
 import {
   iso,
   mapEvaluation,
@@ -177,7 +179,8 @@ export async function getChapter(auth: AuthContext, chapterId: string): Promise<
       `,
       sql<EvaluationRow[]>`
         SELECT
-          e.id, e.chapter_id, e.content_hash, e.context_hash, e.status, e.results, e.created_at,
+          e.id, e.chapter_id, e.content_hash, e.context_hash, e.status, e.results, e.hints,
+          e.created_at,
           r.id AS ruleset_id, r.key AS ruleset_key, r.version AS ruleset_version,
           r.description AS ruleset_description, r.is_production AS ruleset_is_production
         FROM gate_evaluations e
@@ -552,13 +555,31 @@ export async function evaluateChapterGates(
   });
   const id = randomUUID();
   const createdAt = new Date();
+  let hints: GateHintView[] = [];
+  try {
+    hints = await loadGateHints({
+      workspaceId: auth.workspace.id,
+      workId: chapter.work_id,
+      chapterId,
+      chapterNumber: chapter.number,
+      content: draft.content,
+      plan: chapter.plan,
+    });
+  } catch (error) {
+    console.warn(
+      `[gate] 章节 ${chapterId} 账本提示计算失败，门禁结论不受影响：${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
   await sql`
     INSERT INTO gate_evaluations (
-      id, chapter_id, content_hash, ruleset_id, context_hash, status, results, created_at
+      id, chapter_id, content_hash, ruleset_id, context_hash, status, results, hints, created_at
     )
     VALUES (
       ${id}, ${chapterId}, ${draft.content_hash}, ${ruleset.id}, ${contextHash},
-      ${evaluation.status}, ${sql.json(jsonValue(evaluation.results))}, ${createdAt}
+      ${evaluation.status}, ${sql.json(jsonValue(evaluation.results))},
+      ${sql.json(jsonValue(hints))}, ${createdAt}
     )
   `;
 
@@ -570,6 +591,7 @@ export async function evaluateChapterGates(
     ruleset: mapRuleset(ruleset),
     status: evaluation.status,
     results: evaluation.results,
+    hints,
     createdAt: createdAt.toISOString(),
   };
 }
