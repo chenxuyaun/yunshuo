@@ -11,7 +11,11 @@ import type { ChapterPlan } from '@yunshuo/domain';
 import { closeDb, jsonValue, sql } from '@yunshuo/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { computeCost } from './services/ai-service.js';
-import type { GenerationProvider } from './services/provider-service.js';
+import {
+  connectionFailureDetail,
+  redactSecret,
+  type GenerationProvider,
+} from './services/provider-service.js';
 
 const TEST_TITLE = 'M3 运行时测试章节';
 const TEST_NUMBER = 9902;
@@ -80,6 +84,43 @@ describe('生成成本计算', () => {
     ).toBeNull();
     expect(computeCost(base, { promptTokens: null, completionTokens: 5 })).toBeNull();
     expect(computeCost(base, { promptTokens: 5, completionTokens: null })).toBeNull();
+  });
+});
+
+describe('端点错误摘要脱敏与底层原因提取', () => {
+  it('脱敏替换所有出现，但不处理空密钥与过短密钥', () => {
+    expect(redactSecret('HTTP 500 · Bearer sk-secret-1 与 sk-secret-1 重复', 'sk-secret-1')).toBe(
+      'HTTP 500 · Bearer •••• 与 •••• 重复',
+    );
+    // 空密钥与 null 原样返回：没有可替换的对象时不能凭空打码
+    expect(redactSecret('HTTP 500 · no auth', null)).toBe('HTTP 500 · no auth');
+    expect(redactSecret('HTTP 500 · no auth', '')).toBe('HTTP 500 · no auth');
+    // 短于 4 字符的密钥原样保留：这是实现里写死的下限，界面上的密钥最短长度比它长，
+    // 真要放开这个下限必须同时改掉这条断言，否则等于默默取消脱敏。
+    expect(redactSecret('HTTP 500 · key=ab', 'ab')).toBe('HTTP 500 · key=ab');
+    expect(redactSecret('HTTP 500 · key=abc', 'abc')).toBe('HTTP 500 · key=abc');
+    expect(redactSecret('HTTP 500 · key=abcd', 'abcd')).toBe('HTTP 500 · key=••••');
+  });
+
+  it('连接失败摘要优先取 cause.code，并把长文本截到 200 字符加省略号', () => {
+    // Node 的 fetch 把底层错误挂在 cause 上，code 才是可诊断的原因码
+    const wrapped = Object.assign(new Error('fetch failed'), {
+      cause: Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:1'), {
+        code: 'ECONNREFUSED',
+      }),
+    });
+    expect(connectionFailureDetail(wrapped)).toBe('ECONNREFUSED');
+    // 没有 code 时退回 cause.message，再退回 error.message
+    const messageOnly = Object.assign(new Error('fetch failed'), {
+      cause: new Error('socket hang up'),
+    });
+    expect(connectionFailureDetail(messageOnly)).toBe('socket hang up');
+    expect(connectionFailureDetail(new Error('read ECONNRESET'))).toBe('read ECONNRESET');
+    // 非 Error 也要给出可读摘要，且三种截断口径一致
+    expect(connectionFailureDetail('plain string')).toBe('plain string');
+    expect(connectionFailureDetail('x'.repeat(300))).toBe(`${'x'.repeat(200)}…`);
+    expect(connectionFailureDetail(new Error('y'.repeat(300)))).toBe(`${'y'.repeat(200)}…`);
+    expect(connectionFailureDetail({})).toBe('[object Object]');
   });
 });
 

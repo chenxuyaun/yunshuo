@@ -48,7 +48,8 @@ type StubMode = 'ok' | 'error' | 'drift' | 'orthogonal' | 'partial';
 type ModelsStub =
   | { kind: 'ids'; ids: string[] }
   | { kind: 'no_data_field' }
-  | { kind: 'echo_authorization'; status: number };
+  | { kind: 'echo_authorization'; status: number }
+  | { kind: 'hang' };
 
 const EMBEDDING_MODEL = 'stub-embed';
 const EMBEDDING_DIMENSIONS = 4;
@@ -334,6 +335,10 @@ suite('M4 正典索引与混合检索', () => {
             response.writeHead(status, { 'content-type': 'application/json' });
             response.end(JSON.stringify(payload));
           };
+          if (modelsStub.kind === 'hang') {
+            // 接受连接但一行响应都不写：这条请求只能由客户端的 8 秒超时结束
+            return;
+          }
           if (modelsStub.kind === 'echo_authorization') {
             reply(modelsStub.status, {
               error: { message: `stub 收到 ${request.headers.authorization ?? '无授权头'}` },
@@ -1330,4 +1335,42 @@ suite('M4 正典索引与混合检索', () => {
         AND object_id = ${keyProviderId}
     `;
   });
+
+  it('模型清单端点接受连接却不响应时按超时收口，不混作连接被拒', async () => {
+    const DISCOVER = '/api/model-providers/discover-models';
+    const baseUrl = `http://127.0.0.1:${stubPort}/v1`;
+    modelsStub = { kind: 'hang' };
+    stubRequests = [];
+
+    const startedAt = Date.now();
+    // 同 base_url 上别的用例已经建过服务商，所以这里只能比对该调用前后的增量，不能数绝对值
+    const providersBefore = await sql<{ n: string }[]>`
+      SELECT count(*)::text AS n FROM model_providers
+    `;
+    const auditBefore = await sql<{ n: string }[]>`
+      SELECT count(*)::text AS n FROM audit_log WHERE workspace_id = ${workspaceA}
+    `;
+    const hung = await call<ErrorBody>('POST', DISCOVER, ownerA, { baseUrl });
+    const elapsed = Date.now() - startedAt;
+
+    expect(hung.status).toBe(502);
+    // 三类失败必须分得开：超时、连不上、端点报错各有自己的码与文案
+    expect(hung.body.error.code).toBe('MODEL_DISCOVERY_TIMEOUT');
+    expect(hung.body.error.message).toContain('连接超时（8 秒）');
+    expect(hung.body.error.message).not.toContain('ECONNREFUSED');
+    // 文案里的"8 秒"要真是等待时长：把 AbortSignal.timeout 改成 200 毫秒而不动文案，这条先红
+    expect(elapsed).toBeGreaterThanOrEqual(8_000);
+    expect(elapsed).toBeLessThan(16_000);
+    // 挂死的只是这一次探测：请求确实发出去了，服务端不重试
+    expect(stubRequests).toHaveLength(1);
+
+    // 超时的发现尝试既不落服务商行也不写审计，失败本身不进任何持久记录
+    const providersAfter = await sql<{ n: string }[]>`SELECT count(*)::text AS n FROM model_providers`;
+    const auditAfter = await sql<{ n: string }[]>`
+      SELECT count(*)::text AS n FROM audit_log WHERE workspace_id = ${workspaceA}
+    `;
+    expect(providersAfter[0]?.n).toBe(providersBefore[0]?.n);
+    expect(auditAfter[0]?.n).toBe(auditBefore[0]?.n);
+    modelsStub = { kind: 'ids', ids: ['stub-chat'] };
+  }, 20_000);
 });
