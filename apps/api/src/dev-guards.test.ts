@@ -2,7 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 /**
- * 这一族测的是"开发身份三闸"与 env.ts 的启动不变量：零数据库、零模型调用。
+ * 这一族测的是"开发身份三闸"与 env.ts 的启动不变量：不写数据库、零模型调用。
+ * 前两组的闸都在触库之前抛出；第三组是闸开着时的 200 正常路径，只 SELECT 种子行。
  *
  * 关键约束（也是本轮踩到的一条）：`packages/db/src/env.ts:17` 用 `override: false` 读根目录
  * `.env`，dotenv 只不覆盖**已存在**的键，但会把**没设过**的键从文件里补回来。仓库 `.env` 里
@@ -212,5 +213,87 @@ describe('开发身份三闸在 DEV_AUTH 关闭时逐个拒', () => {
       'code',
       'message',
     ]);
+  });
+});
+
+describe('闸开着时两条只读端点各答一次 200', () => {
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    // MAIL_MODE 显式写 memory：非生产默认也是 memory，但这一组的断言里有 `mode:'memory'`
+    // 这个字面值，不能让"某个环境把 MAIL_MODE 设成别的"把它变成偶然的 404。
+    setEnv({ DEV_AUTH: '1', NODE_ENV: 'test', MAIL_MODE: 'memory', LOG_LEVEL: 'silent' });
+    vi.resetModules();
+    const { buildServer } = await import('./server.js');
+    app = await buildServer();
+    await app.ready();
+  });
+
+  afterAll(async () => {
+    await app.close();
+    restoreEnv();
+  });
+
+  it('开发内存邮箱把"未真实投递"写在响应里，空清单也照实返回', async () => {
+    const response = await app.inject({ method: 'GET', url: '/api/dev/mailbox' });
+    expect(response.statusCode).toBe(200);
+    // 登录页那行「未真实投递 · 仅 DEV_AUTH 本机可读」（LoginScreen.tsx:66）不是前端自己
+    // 猜的，它读的就是这两个常量。接真 SMTP（或 off）之后这个端点会走 404 分支（闸里有
+    // `env.mail.mode !== 'memory'`），界面不会继续显示一个"看起来能读"的邮箱——下一组钉的
+    // 正是这半个条件。
+    expect(response.json()).toEqual({ mode: 'memory', delivered: false, messages: [] });
+  });
+
+  it('开发用户清单四字段齐全，含三个种子人类账号且不含 AI 服务账号', async () => {
+    const response = await app.inject({ method: 'GET', url: '/api/dev/users' });
+    expect(response.statusCode).toBe(200);
+    const rows = response.json() as Array<Record<string, unknown>>;
+    for (const row of rows) {
+      expect(Object.keys(row).sort()).toEqual(['email', 'id', 'name', 'role']);
+    }
+    const emails = rows.map((row) => row.email);
+    expect(emails).toContain('owner@demo.local');
+    expect(emails).toContain('lead@demo.local');
+    expect(emails).toContain('author@demo.local');
+    // AI 服务账号不出现在这份清单里，实测**第一道是 `JOIN memberships`**（AI 没有成员关系，
+    // `routes/auth.ts:168`）：对照枪 E4 把 `WHERE u.kind = 'human'`（`:169`）整条去掉后十条
+    // 断言全绿，所以这句过滤在这个端点上是第二道。它与 m5-identity 里"AI 主体不能开发登录"
+    // 守的是两个面——那里挡的是登录请求，这里挡的是界面上的按钮。
+    expect(emails.some((email) => String(email).endsWith('@service.yunshuo.local'))).toBe(false);
+    const humanRoles = new Set(['owner', 'lead', 'author', 'reviewer', 'viewer', 'billing']);
+    for (const row of rows) {
+      expect(humanRoles.has(String(row.role))).toBe(true);
+    }
+  });
+});
+
+describe('开发邮箱的闸比开发用户清单多一个条件', () => {
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    // DEV_AUTH 开着，但邮件模式不是 memory：这时两条闸的差别才看得见——
+    // 邮箱端点还要求 `env.mail.mode === 'memory'`，用户清单只看 DEV_AUTH。
+    setEnv({ DEV_AUTH: '1', NODE_ENV: 'test', MAIL_MODE: 'off', LOG_LEVEL: 'silent' });
+    vi.resetModules();
+    const { buildServer } = await import('./server.js');
+    app = await buildServer();
+    await app.ready();
+  });
+
+  afterAll(async () => {
+    await app.close();
+    restoreEnv();
+  });
+
+  it('邮件模式为 off 时开发邮箱仍报 404，而开发用户清单照常 200', async () => {
+    const mailbox = await app.inject({ method: 'GET', url: '/api/dev/mailbox' });
+    expect(shapeOf(mailbox)).toEqual({
+      status: 404,
+      code: 'DEV_MAILBOX_DISABLED',
+      message: '开发内存邮箱未启用',
+      topKeys: ['error'],
+    });
+    const users = await app.inject({ method: 'GET', url: '/api/dev/users' });
+    expect(users.statusCode).toBe(200);
   });
 });
