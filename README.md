@@ -69,7 +69,7 @@ node scripts/m4-acceptance.mjs   # 真实嵌入验收：探测→重建→ready�
 node scripts/retrieval-eval.mjs  # 小样本正典检索评估，报告写入 docs/m4-retrieval-eval.json
 node scripts/ledger-retrieval-eval.mjs   # 小样本账本检索评估，报告写入 docs/m6-ledger-retrieval-eval.json（跑完自清理）
 node scripts/endpoint-test-coverage.mjs  # 端点↔测试筛子：按完整路径形状（:param 当一段通配）列出没被任何测试引用的 HTTP 端点
-node scripts/error-code-test-coverage.mjs  # 错误码↔测试筛子：列出从未在任何测试里以字面量断言过的 AppError 码（`--verbose` 另列码由变量决定的位点，交人工判断）
+node scripts/error-code-test-coverage.mjs  # 错误码↔测试筛子：按实参位置（不是按排版）收码，列出从未在任何测试里以字面量断言过的码；`--verbose` 另出规则命中明细、真·变量码位点及其调用方展开、与旧普查的增减对账
 node scripts/test-db-residue.mjs --save=/tmp/a.json   # 隔离测试库残留快照；跑一遍全量测试后再 --diff=/tmp/a.json，有增量即退出 1
 PERF_API_PID=<监听3101的pid> PERF_STAGES=200,300,500 PERF_CHAPTER_CHARS=600 PERF_CONCURRENCY=1,4,8 PERF_REPORT_NAME=baseline node scripts/m6-perf-baseline.mjs   # 导入与账本扫描的规模/并发基线，需在指向 yunshuo_test 的独立 API 上跑，报告写入 docs/m6-perf-<名称>.json（跑完自清理并断言各表计数回到基线）
 PERF_INDEX_CHAPTERS=1000 PERF_REPORT_NAME=index node scripts/m6-perf-index.mjs   # 千章索引排空与检索基线：除独立 API 外还要有指向同一 yunshuo_test 的 worker 与本机嵌入服务；嵌入服务不可达时直接退出，不会降级成"未配置"来蒙混
@@ -77,6 +77,8 @@ PERF_LEDGER_ENTRIES=1000 PERF_REPORT_NAME=ledger node scripts/m6-perf-ledger-ind
 ```
 
 GitHub Actions 在 push 到 `main` 和 pull request 时运行同一套检查：PostgreSQL 17 + pgvector 服务容器、迁移与种子、类型检查与全量测试。
+
+**错误码筛子在 2026-10-23 被重写过一次，因为它挂了五轮的"另有 42 处动态码位点需人工判断"是一句假话。** 旧判定用 `/(badRequest|notFound|conflict|badGateway)\(\s*[^'\)]/`：`\s*` 先吃掉换行与缩进、再在 `'` 上失配并回溯，于是把"空白"当成首参字符——任何 Prettier 风格的多行 `throw conflict(\n  'CODE', …)` 都被记成动态位点。两条独立路子（复刻旧两条正则比行集；按实参位置解析 253 处调用）都给出同一结论：42 处全部同时是单引号字面量位点，真动态 0 处。新筛子改按**位置**取码（形参名等于 `code`/`errorCode` 的实参、`code:` 响应装配、名字含 code 的函数在 return/`??`/三元 else 位、`const code =` 赋值位点），码集因此从 152 涨到 **176（旧码一个没丢，脚本内置旧正则做超集校验）**，从未被测试按名字断过的码从 26 涨到 **40**——其中 14 个是这轮新翻出来的，13 个真的会在界面上给用户看（`AI_TIMEOUT`、`AI_BAD_RESPONSE`、`AI_GENERATION_FAILED`、`EMPTY_OUTPUT`、`OUTPUT_TOO_LARGE`、`AI_UPSTREAM_ERROR`、`AI_NO_ATTEMPT`、`BUDGET_GUARD_UNAVAILABLE`、`PAYLOAD_TOO_LARGE`、`UNSUPPORTED_MEDIA_TYPE`、`OIDC_LOGIN_FAILED`、`MAIL_SEND_FAILED`、`INTERNAL`），只有 `CLIENT_ABORTED` 判为不发往客户端、不钉。另有 14 处真·变量码位点逐条定性（4 处是构造器本体透传、2 个限流码早就被断言过、`exchangeCode(input.code)` 是同名不同义的 OIDC 授权码）。详见审计报告 §二十六。
 
 **M4-B 起必须使用独立测试库跑集成测试。** M4-B 测试会创建真实作业；若与开发 API 共用主库，开发进程里的 runner 可能领取测试作业并调用真实模型。测试库只需建一次：
 
