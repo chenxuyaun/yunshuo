@@ -10,7 +10,7 @@ import type {
 } from '@yunshuo/contracts';
 import type { ChapterPlan } from '@yunshuo/domain';
 import { closeDb, jsonValue, sql } from '@yunshuo/db';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { automationRunnerId, runAutomationTick } from './services/automation-runner.js';
 import { automationAgentEmail } from './services/automation-agent.js';
 
@@ -212,6 +212,23 @@ suite('M4-B 自动化授权 / 预检 / 无人值守入库', () => {
     await call('POST', `/api/automation/jobs/${jobId}/stop`, owner);
   }
 
+  // 一个工作区同时只许一份活跃作业（automation-service.ts:835 把 queued/running/paused 都算进去），
+  // 而 running 只能举旗不能强收。前面某条用例如果因为产品被改动而留下 running，
+  // 后面每条 createJob 都会 409 —— 一枪的红就会伪装成七八条用例的红。
+  // 需要在同一次跑里连续建作业的用例，起手先把本工作区还活跃的行收掉（只收自己夹具的行，不碰别的用例的断言）。
+  async function settleWorkspaceJobs(): Promise<void> {
+    await sql`
+      UPDATE automation_jobs SET status = 'stopped', runner_id = NULL, heartbeat_at = NULL
+      WHERE workspace_id = ${workspaceId} AND status IN ('queued', 'running', 'paused')
+    `;
+  }
+
+  // 收尾统一收掉本夹具留下的活跃作业：产品被改动时，中途红掉的用例会留下一份 queued/running，
+  // 于是后面每条 createJob 都 409 —— 一枪真红会伪装成十条用例的红，失败就再也归因不到它自己那一行。
+  afterEach(async () => {
+    await settleWorkspaceJobs();
+  });
+
   async function removeWorkspaceData(id: string): Promise<void> {
     await sql`DELETE FROM automation_jobs WHERE workspace_id = ${id}`;
     await sql`DELETE FROM automation_mandates WHERE workspace_id = ${id}`;
@@ -341,6 +358,13 @@ suite('M4-B 自动化授权 / 预检 / 无人值守入库', () => {
     await createChapter(22, '竞态甲章', PLAN);
     await createChapter(23, '策略漂移章', PLAN);
     await createChapter(24, '策略恢复章', PLAN);
+    await createChapter(25, '费用未知甲章', PLAN);
+    await createChapter(26, '费用未知乙章', PLAN);
+    await createChapter(27, '无预算甲章', PLAN);
+    await createChapter(28, '无预算乙章', PLAN);
+    await createChapter(29, '末章费用未知章', PLAN);
+    await createChapter(30, '上限触发甲章', PLAN);
+    await createChapter(31, '上限触发乙章', PLAN);
 
     const provider = await call<ModelProviderView>('POST', '/api/model-providers', owner, {
       name: 'M4-B 对话桩',
@@ -615,7 +639,10 @@ suite('M4-B 自动化授权 / 预检 / 无人值守入库', () => {
     );
     expect(job.body.status).toBe('paused');
     expect(job.body.committedChapters).toBe(1);
-    expect(job.body.lastError).toContain('预算');
+    // 停在哪儿，得说得出是哪道闸答的：这句带"调用前暂停"，说明答案是 runChapter 之前的预算闸
+    // （automation-runner.ts:777-784），不是章末/章首那两处预算检查点——它们的句子是"章节检查点暂停"。
+    expect(job.body.lastError?.split(':')[0]).toBe('BUDGET_INSUFFICIENT');
+    expect(job.body.lastError).toContain('；作业在调用前暂停，章节保持待办。');
     expect(job.body.chapters.find((chapter) => chapter.status === 'pending')).toBeTruthy();
     expect(stubRequests).toHaveLength(1);
 
@@ -642,6 +669,7 @@ suite('M4-B 自动化授权 / 预检 / 无人值守入库', () => {
     );
     expect(job.body.status).toBe('paused');
     expect(job.body.lastError).toContain('BUDGET_INSUFFICIENT');
+    expect(job.body.lastError).toContain('；作业在调用前暂停，章节保持待办。');
     expect(job.body.committedChapters).toBe(0);
     expect(job.body.chapters[0]!.status).toBe('pending');
     expect(stubRequests).toHaveLength(0);
@@ -1476,4 +1504,246 @@ suite('M4-B 自动化授权 / 预检 / 无人值守入库', () => {
       });
     }
   }, 30_000);
+
+  it('预算检查点在两个入口说两句话，末章短路时根本不问预算', async () => {
+    // 把 :312 那条 cost_unknown 分支喂饱的最便宜的办法：让端点漂到 RFC 2606 的 .invalid，
+    // 章节被运行时策略闸挡下（零调用、零出境），失败章的 cost 为空 → recomputeJob 把整份作业标成费用未知。
+    const REMOTE_BASE_URL = 'http://m4b-budget-drift.invalid/v1';
+    const LOCAL_BASE_URL = `http://127.0.0.1:${stubPort}/v1`;
+    // 同一条"费用未知就不许继续"的规则有两处实现，句子并不一样：
+    // settleJob（章末检查点）说"；已按预算保护暂停。"，settleBudgetReason + 章首检查点说"，作业在章节检查点暂停。"
+    const PAUSE_AT_CHAPTER_END = '有章节费用未知，无法确认是否仍在预算内；已按预算保护暂停。';
+    const PAUSE_BEFORE_NEXT_CHAPTER = '有章节费用未知，无法确认是否仍在预算内，作业在章节检查点暂停。';
+
+    stubContent = PASSING_CONTENT;
+    stubRequests = [];
+    await settleWorkspaceJobs();
+
+    async function jobView(jobId: string): Promise<AutomationJobView> {
+      const result = await call<AutomationJobView>('GET', `/api/automation/jobs/${jobId}`, owner);
+      expect(result.status).toBe(200);
+      return result.body;
+    }
+
+    async function drift(baseUrl: string): Promise<void> {
+      const result = await call<ModelProviderView>(
+        'PATCH',
+        `/api/model-providers/${pricedProviderId}`,
+        owner,
+        { baseUrl },
+      );
+      expect(result.status).toBe(200);
+      expect(result.body.baseUrl).toBe(baseUrl);
+    }
+
+    // 中途红掉时也要把作业从 queued/running/paused 里收掉：一份留在"活跃"里的作业
+    // 会让同一个工作区下一次 createJob 直接 409（automation-service.ts:835），把一枪的红传染给下一条用例。
+    const stopInFinally: string[] = [];
+
+    try {
+      // ① 挂了预算、还剩下一章：章末检查点作答。
+      const budgeted = await createMandate({ name: '费用未知预算授权', budgetLimit: 1 });
+      const first = await createJob(budgeted.id, [
+        chapterId('费用未知甲章'),
+        chapterId('费用未知乙章'),
+      ]);
+      expect(first.status).toBe(200);
+      stopInFinally.push(first.body.id);
+      await drift(REMOTE_BASE_URL);
+
+      await runAutomationTick();
+
+      const paused = await jobView(first.body.id);
+      expect(paused.status).toBe('paused');
+      expect(paused.lastError).toBe(PAUSE_AT_CHAPTER_END);
+      expect(paused.committedChapters).toBe(0);
+      expect(paused.failedChapters).toBe(1);
+      expect(paused.spent).toBe(0);
+      expect(paused.costUnknown).toBe(true);
+      const pendingAfterEnd = paused.chapters.find(
+        (item) => item.chapterId === chapterId('费用未知乙章'),
+      );
+      expect(pendingAfterEnd?.status).toBe('pending');
+      expect(stubRequests).toHaveLength(0);
+
+      // ② 人工恢复不会让费用变得已知：同一条规则换另一处实现作答，句子也就换了。
+      const resumed = await call<AutomationJobView>(
+        'POST',
+        `/api/automation/jobs/${first.body.id}/resume`,
+        owner,
+      );
+      expect(resumed.status).toBe(200);
+      expect(resumed.body.status).toBe('queued');
+
+      await runAutomationTick();
+
+      const repaused = await jobView(first.body.id);
+      expect(repaused.status).toBe('paused');
+      expect(repaused.lastError).toBe(PAUSE_BEFORE_NEXT_CHAPTER);
+      expect(repaused.lastError).not.toBe(PAUSE_AT_CHAPTER_END);
+      // 章首检查点在下一章开工之前就答"停"，所以甲章仍是唯一有痕迹的一章、桩依旧一枪未开。
+      expect(repaused.failedChapters).toBe(1);
+      expect(repaused.spent).toBe(0);
+      expect(
+        repaused.chapters.find((item) => item.chapterId === chapterId('费用未知乙章'))?.status,
+      ).toBe('pending');
+      expect(stubRequests).toHaveLength(0);
+
+      // 预算保护留下的 paused 仍算"活跃作业"（automation-service.ts:835 把 paused 也算进去），
+      // 不先收口就再也建不出下一份作业 —— 本用例的四段共用一个工作区，只能一段一段收。
+      await stopIfActive(first.body.id);
+
+      // ③ 挂了预算但只剩这一章：remaining===0 先短路成 completed，预算那条 if 根本没机会问。
+      //    所以"挂了 budget_limit 就一定在检查点停"是错的，§二十三 那句话说得太满。
+      //    这一段排在正控制之前是有意的：摘掉 :289 短路的反向验证枪只会让这里红，
+      //    若先跑正控制，那份留在 running 的作业会被"一个工作区只许一份活跃作业"的闸门传染到下一段。
+      await drift(LOCAL_BASE_URL);
+      const single = await createMandate({ name: '末章费用未知授权', budgetLimit: 1 });
+      const shortJob = await createJob(single.id, [chapterId('末章费用未知章')]);
+      expect(shortJob.status).toBe(200);
+      stopInFinally.push(shortJob.body.id);
+      await drift(REMOTE_BASE_URL);
+
+      await runAutomationTick();
+
+      const ended = await jobView(shortJob.body.id);
+      expect(ended.status).toBe('completed');
+      expect(ended.lastError).toBeNull();
+      expect(ended.costUnknown).toBe(true);
+      expect(ended.failedChapters).toBe(1);
+      expect(stubRequests).toHaveLength(0);
+
+      // ④ 正控制：同样漂远程、同样两章，唯一变量是不挂预算 —— 费用未知本身拦不住作业，
+      //    两章都失败后 remaining===0 收口成 completed。①里停下它的确实是 budget_limit。
+      await drift(LOCAL_BASE_URL);
+      const free = await createMandate({ name: '费用未知无预算授权', budgetLimit: null });
+      const control = await createJob(free.id, [
+        chapterId('无预算甲章'),
+        chapterId('无预算乙章'),
+      ]);
+      expect(control.status).toBe(200);
+      stopInFinally.push(control.body.id);
+      await drift(REMOTE_BASE_URL);
+
+      await runAutomationTick();
+      expect((await jobView(control.body.id)).status).toBe('running');
+
+      await runAutomationTick();
+      const drained = await jobView(control.body.id);
+      expect(drained.status).toBe('completed');
+      expect(drained.costUnknown).toBe(true);
+      expect(drained.failedChapters).toBe(2);
+      expect(drained.lastError).toBeNull();
+      expect(stubRequests).toHaveLength(0);
+    } finally {
+      for (const jobId of stopInFinally) {
+        // HTTP 的 stop 对 running 只会举旗（「运行中只举旗」那条用例钉的就是它），
+        // 摘掉守卫的那一枪会把作业留在 running，光靠端点收不掉 → 直接把还活跃的行收口，
+        // 免得一条用例的红传染成下一条用例的 409。
+        await sql`
+          UPDATE automation_jobs SET status = 'stopped', runner_id = NULL, heartbeat_at = NULL
+          WHERE id = ${jobId} AND status IN ('queued', 'running', 'paused')
+        `;
+      }
+      await call('PATCH', `/api/model-providers/${pricedProviderId}`, owner, {
+        baseUrl: LOCAL_BASE_URL,
+      });
+    }
+  }, 60_000);
+
+  it('累计费用冲过预算上限：章末检查点报 0.02，恢复后那一处报 0.0200', async () => {
+    // :320 那条"累计费用已达上限"从 HTTP 很难走到：预算闸先按预估输入费扣，
+    // 1/1 的价表下每章真实费用 0.0015，而预估输入费就占掉大半，末章总是先撞上调用前的 BUDGET_INSUFFICIENT。
+    // 把输出价抬到 100/百万 token（桩固定回报 usage 1000/500），单次真实费用 0.051 ≫ 预算 0.02，
+    // 而 0.02 仍够发起这一次调用（预估输入费 ≪ 0.02），检查点这才有的答。价表只在本用例内改，finally 还原。
+    const PAUSE_LIMIT_AT_END = '该授权累计费用已达预算上限 0.02，作业在章节检查点暂停。';
+    const PAUSE_LIMIT_BEFORE_NEXT = '该授权累计费用已达预算上限 0.0200，作业在章节检查点暂停。';
+
+    stubContent = PASSING_CONTENT;
+    stubRequests = [];
+    await settleWorkspaceJobs();
+
+    async function jobView(jobId: string): Promise<AutomationJobView> {
+      const result = await call<AutomationJobView>('GET', `/api/automation/jobs/${jobId}`, owner);
+      expect(result.status).toBe(200);
+      return result.body;
+    }
+
+    // 中途红掉时也要把作业从 queued/running/paused 里收掉：一份留在"活跃"里的作业
+    // 会让同一个工作区下一次 createJob 直接 409（automation-service.ts:835）。
+    const stopInFinally: string[] = [];
+
+    try {
+      const repriced = await call<ModelProviderView>(
+        'PATCH',
+        `/api/model-providers/${pricedProviderId}`,
+        owner,
+        { promptPricePer1m: 1, completionPricePer1m: 100, priceCurrency: 'CNY' },
+      );
+      expect(repriced.status).toBe(200);
+      expect(repriced.body.completionPricePer1m).toBe(100);
+
+      const mandate = await createMandate({ name: '累计达上限授权', budgetLimit: 0.02 });
+      const created = await createJob(mandate.id, [
+        chapterId('上限触发甲章'),
+        chapterId('上限触发乙章'),
+      ]);
+      expect(created.status).toBe(200);
+      stopInFinally.push(created.body.id);
+
+      await runAutomationTick();
+
+      const stopped = await jobView(created.body.id);
+      expect(stopped.status).toBe('paused');
+      expect(stopped.lastError).toBe(PAUSE_LIMIT_AT_END);
+      expect(stopped.committedChapters).toBe(1);
+      expect(stopped.failedChapters).toBe(0);
+      expect(stopped.costUnknown).toBe(false);
+      // 0.051 = 1000/1M×1 + 500/1M×100，computeCost 再按四位小数收口。
+      expect(stopped.spent).toBe(0.051);
+      expect(stubRequests).toHaveLength(1);
+      const maxTokens = stubRequests[0]!.body?.max_tokens;
+      // 预算 0.02 扣掉预估输入费后只够约 180-193 tokens 输出：既过得了最低 128，也远小于默认的 1600。
+      expect(maxTokens).toBeGreaterThanOrEqual(128);
+      expect(maxTokens!).toBeLessThan(500);
+      expect(
+        stopped.chapters.find((item) => item.chapterId === chapterId('上限触发乙章'))?.status,
+      ).toBe('pending');
+
+      // 恢复后同一条规则由章首那处作答：上限取的是库里的 numeric(12,4) 原始串，
+      // 于是同一份预算在两句里分别长成 0.02 与 0.0200 —— 记录现状，不改口径。
+      const resumed = await call<AutomationJobView>(
+        'POST',
+        `/api/automation/jobs/${created.body.id}/resume`,
+        owner,
+      );
+      expect(resumed.status).toBe(200);
+
+      await runAutomationTick();
+
+      const repaused = await jobView(created.body.id);
+      expect(repaused.status).toBe('paused');
+      expect(repaused.lastError).toBe(PAUSE_LIMIT_BEFORE_NEXT);
+      expect(repaused.lastError).not.toBe(PAUSE_LIMIT_AT_END);
+      expect(repaused.committedChapters).toBe(1);
+      expect(repaused.spent).toBe(0.051);
+      // 章首检查点在开工前就答"停"：恢复没有多烧一次调用。
+      expect(stubRequests).toHaveLength(1);
+      expect(
+        repaused.chapters.find((item) => item.chapterId === chapterId('上限触发乙章'))?.status,
+      ).toBe('pending');
+    } finally {
+      for (const jobId of stopInFinally) {
+        await sql`
+          UPDATE automation_jobs SET status = 'stopped', runner_id = NULL, heartbeat_at = NULL
+          WHERE id = ${jobId} AND status IN ('queued', 'running', 'paused')
+        `;
+      }
+      await call('PATCH', `/api/model-providers/${pricedProviderId}`, owner, {
+        promptPricePer1m: 1,
+        completionPricePer1m: 1,
+        priceCurrency: 'CNY',
+      });
+    }
+  }, 60_000);
 });
