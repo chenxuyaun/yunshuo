@@ -339,6 +339,8 @@ suite('M4-B 自动化授权 / 预检 / 无人值守入库', () => {
     await createChapter(20, '互斥乙章', PLAN);
     await createChapter(21, '互斥丙章', PLAN);
     await createChapter(22, '竞态甲章', PLAN);
+    await createChapter(23, '策略漂移章', PLAN);
+    await createChapter(24, '策略恢复章', PLAN);
 
     const provider = await call<ModelProviderView>('POST', '/api/model-providers', owner, {
       name: 'M4-B 对话桩',
@@ -1307,4 +1309,171 @@ suite('M4-B 自动化授权 / 预检 / 无人值守入库', () => {
       `;
     }
   }, 25_000);
+
+  it('作业建好之后服务商端点被改成远程：策略闸在发出任何请求之前挡住这一章', async () => {
+    // 远程端点用 RFC 2606 保留的 .invalid：它永远解析不到，所以摘掉守卫的那一枪只会留下
+    // "试图出境"的证据（失败原因从策略码变成连接错），而不会把正文真发到某个可路由地址上。
+    const REMOTE_BASE_URL = 'http://m4b-policy-drift.invalid/v1';
+    const LOCAL_BASE_URL = `http://127.0.0.1:${stubPort}/v1`;
+    const driftChapter = chapterId('策略漂移章');
+    const restoreChapter = chapterId('策略恢复章');
+
+    async function chapterTrail(id: string): Promise<{
+      proposals: string;
+      calls: string;
+      locks: string;
+      drafts: string;
+      versions: string;
+      leases: string;
+      status: string;
+    }> {
+      const rows = await sql<
+        {
+          proposals: string;
+          calls: string;
+          locks: string;
+          drafts: string;
+          versions: string;
+          leases: string;
+          status: string;
+        }[]
+      >`
+        SELECT
+          (SELECT count(*) FROM ai_proposals WHERE chapter_id = ${id})::text AS proposals,
+          (SELECT count(*) FROM model_calls WHERE chapter_id = ${id})::text AS calls,
+          (SELECT count(*) FROM ai_generation_locks WHERE chapter_id = ${id})::text AS locks,
+          (SELECT count(*) FROM draft_revisions dr
+             JOIN draft_branches db ON db.id = dr.branch_id
+            WHERE db.chapter_id = ${id})::text AS drafts,
+          (SELECT count(*) FROM canon_versions WHERE chapter_id = ${id})::text AS versions,
+          (SELECT count(*) FROM chapter_leases WHERE chapter_id = ${id})::text AS leases,
+          (SELECT status FROM chapters WHERE id = ${id}) AS status
+      `;
+      return rows[0]!;
+    }
+
+    async function workspaceTrail(): Promise<{ audits: string; events: string }> {
+      const rows = await sql<{ audits: string; events: string }[]>`
+        SELECT
+          (SELECT count(*)::text FROM audit_log WHERE workspace_id = ${workspaceId}) AS audits,
+          (SELECT count(*)::text FROM events WHERE workspace_id = ${workspaceId}) AS events
+      `;
+      return rows[0]!;
+    }
+
+    // 前一条用例改过桩正文，正控制必须知道自己拿到的是能过门禁的内容，
+    // 否则"策略闸挡住"与"门禁挡住"两种红会混在一起。
+    stubContent = PASSING_CONTENT;
+    stubRequests = [];
+    const mandate = await createMandate({ name: '策略漂移授权', allowRemoteModels: false });
+
+    // ① 端点还是本机时同一份授权能建成作业：预检放行，运行时那道闸此刻没东西可拦。
+    const job = await createJob(mandate.id, [driftChapter]);
+    expect(job.status).toBe(200);
+    expect(job.body.status).toBe('queued');
+    expect(job.body.preflight.checks.find((check) => check.key === 'remote_policy')?.status).toBe(
+      'pass',
+    );
+
+    // ② 配置漂移：PATCH 只改 baseUrl，不重新探测、不动密钥。
+    const drifted = await call<ModelProviderView>(
+      'PATCH',
+      `/api/model-providers/${pricedProviderId}`,
+      owner,
+      { baseUrl: REMOTE_BASE_URL },
+    );
+    expect(drifted.status).toBe(200);
+    expect(drifted.body.baseUrl).toBe(REMOTE_BASE_URL);
+    expect(drifted.body.hasKey).toBe(true);
+
+    try {
+      // ③ 同一份配置在两个入口给两种答案：预检能"看出来"（remote_policy 直接 fail），
+      //    但已经建好的作业不会因为预检而停下——这正是运行时那道 providerFilter 存在的理由。
+      const recheck = await preflight(mandate.id, [driftChapter]);
+      const policyCheck = recheck.body.checks.find((check) => check.key === 'remote_policy');
+      expect(policyCheck?.status).toBe('fail');
+      expect(policyCheck?.detail).toContain('远程端点');
+      expect(stubRequests).toHaveLength(0);
+
+      const before = await chapterTrail(driftChapter);
+      expect(before).toEqual({
+        proposals: '0',
+        calls: '0',
+        locks: '0',
+        drafts: '0',
+        versions: '0',
+        leases: '0',
+        status: 'planned',
+      });
+      const beforeWorkspace = await workspaceTrail();
+
+      await runAutomationTick();
+
+      const blocked = await call<AutomationJobView>(
+        'GET',
+        `/api/automation/jobs/${job.body.id}`,
+        owner,
+      );
+      expect(blocked.body.status).toBe('completed');
+      expect(blocked.body.committedChapters).toBe(0);
+      expect(blocked.body.failedChapters).toBe(1);
+      expect(blocked.body.spent).toBe(0);
+      // 失败章没有费用，recomputeJob 把整份作业标成"费用未知"（那一列的 status 列表含 failed）。
+      expect(blocked.body.costUnknown).toBe(true);
+      const outcome = blocked.body.chapters.find((item) => item.chapterId === driftChapter);
+      expect(outcome?.status).toBe('failed');
+      // 归因钉成引号里的码名，而不是只塞进正则：覆盖筛子只认独立带引号的字面量，
+      // 把码写成 /^MODEL_POLICY_BLOCKED:/ 会像 §二十一 那样在筛子里假装没测过。
+      expect(outcome?.reason?.split(':')[0]).toBe('MODEL_POLICY_BLOCKED');
+      expect(outcome?.reason).toContain('没有可用的模型服务商');
+      expect(outcome?.proposalId).toBeNull();
+      expect(outcome?.versionId).toBeNull();
+      expect(outcome?.evaluationId).toBeNull();
+      expect(outcome?.cost).toBeNull();
+
+      // ④ 这一章什么都没留下：零提案、零调用、零生成锁、零草稿、零版本、租约已释放，
+      //    工作区的审计与事件计数也逐项相等（抛错在提案行与锁的 INSERT 之前）。
+      expect(await chapterTrail(driftChapter)).toEqual(before);
+      expect(await workspaceTrail()).toEqual(beforeWorkspace);
+      expect(stubRequests).toHaveLength(0);
+
+      // ⑤ 正控制：端点改回本机，同一授权的第二份作业照常跑完。
+      //    这一枪证明上面那次失败来自策略，而不是夹具坏了。
+      const restored = await call<ModelProviderView>(
+        'PATCH',
+        `/api/model-providers/${pricedProviderId}`,
+        owner,
+        { baseUrl: LOCAL_BASE_URL },
+      );
+      expect(restored.status).toBe(200);
+      const second = await createJob(mandate.id, [restoreChapter]);
+      expect(second.status).toBe(200);
+      await runAutomationTick();
+      const done = await call<AutomationJobView>(
+        'GET',
+        `/api/automation/jobs/${second.body.id}`,
+        owner,
+      );
+      expect(done.body.status).toBe('completed');
+      expect(done.body.committedChapters).toBe(1);
+      expect(done.body.failedChapters).toBe(0);
+      expect(done.body.costUnknown).toBe(false);
+      expect(stubRequests).toHaveLength(1);
+      expect(stubRequests[0]?.body?.model).toBe('stub-chat');
+      const runTrail = await chapterTrail(restoreChapter);
+      expect(runTrail.proposals).toBe('1');
+      expect(runTrail.calls).toBe('1');
+      expect(runTrail.versions).toBe('1');
+      // 生成锁在收口时释放，租约也不留给下一个持有者。
+      expect(runTrail.locks).toBe('0');
+      expect(runTrail.leases).toBe('0');
+      expect(Number(runTrail.drafts)).toBeGreaterThan(0);
+      expect(runTrail.status).toBe('canon');
+    } finally {
+      // 服务商是整个套件共用的，端点必须还回本机：留给后面的用例一个能跑的夹具。
+      await call('PATCH', `/api/model-providers/${pricedProviderId}`, owner, {
+        baseUrl: LOCAL_BASE_URL,
+      });
+    }
+  }, 30_000);
 });
