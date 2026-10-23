@@ -467,4 +467,145 @@ suite('M5-B 账号安全：邮件投递、密码修改与重置', () => {
       ),
     ).rejects.toMatchObject({ code: 'PASSWORD_NOT_SET' });
   });
+
+  it(
+    '新密码与当前密码相同要先过验旧密码这一关；并发窗口里已被改掉的密码不会被后到的请求覆盖',
+    async () => {
+      const email = `same${EMAIL_SUFFIX}`;
+      const userId = await createUser(workspaceId, email, '同密码账号', 'author');
+      const mine = await login(email);
+      const other = await login(email);
+
+      async function sessionCount(): Promise<string> {
+        const rows = await sql<{ count: string }[]>`
+          SELECT count(*) AS count FROM sessions WHERE user_id = ${userId}
+        `;
+        return rows[0]!.count;
+      }
+
+      async function changeEvents(result: 'success' | 'failure'): Promise<string> {
+        const rows = await sql<{ count: string }[]>`
+          SELECT count(*) AS count FROM auth_events
+          WHERE user_id = ${userId} AND action = 'password.change' AND result = ${result}
+        `;
+        return rows[0]!.count;
+      }
+
+      // ① 三道前置的先后：没设密码 → 验当前密码 → 比新旧是否相同。
+      // 当前密码错的时候即使两个值相同也先响 CURRENT_PASSWORD_INVALID——不先把旧密码验一遍，
+      // 服务端无从知道"相同"是笔误还是攻击。
+      const wrongButSame = await call<ErrorBody>('POST', '/api/auth/password/change', mine, {
+        currentPassword: 'definitely-wrong-password',
+        newPassword: 'definitely-wrong-password',
+      });
+      expectError(wrongButSame, 400, 'CURRENT_PASSWORD_INVALID');
+      expect(await changeEvents('failure')).toBe('1');
+
+      const unchanged = await call<ErrorBody>('POST', '/api/auth/password/change', mine, {
+        currentPassword: PASSWORD,
+        newPassword: PASSWORD,
+      });
+      expectError(unchanged, 400, 'PASSWORD_UNCHANGED');
+      expect(unchanged.body.error.message).toBe('新密码不能与当前密码相同');
+
+      // 契约只管长度，"相同"这件事在服务层：6 位的相同密码先被 zod 拦成 VALIDATION，
+      // 而这条拦在请求体解析阶段，连验密码那一步都没走到，所以失败事件数不变。
+      expectError(
+        await call<ErrorBody>('POST', '/api/auth/password/change', mine, {
+          currentPassword: 'shorty',
+          newPassword: 'shorty',
+        }),
+        400,
+        'VALIDATION',
+      );
+      expect(await changeEvents('failure')).toBe('1');
+      expect(await changeEvents('success')).toBe('0');
+      expect((await call('GET', '/api/me', mine)).status).toBe(200);
+      expect((await call('GET', '/api/me', other)).status).toBe(200);
+      expect((await loginPassword(email, PASSWORD)).status).toBe(200);
+      expect(await changeEvents('success')).toBe('0');
+
+      // ② CAS 的窗口是确定性拉出来的，不靠时序运气：测试事务先用 FOR UPDATE 锁住用户行，
+      //    等请求真的卡在行锁上——pg_stat_activity 里那条 wait_event='transactionid' 的
+      //    密码 UPDATE 就是"旧哈希已读、正等着写"的凭据——再在锁内把密码改成 NEW_PASSWORD 并提交。
+      //    请求醒来后 WHERE … AND password_hash = <旧哈希> 一行也匹配不到 → 409，
+      //    而它整个事务回滚，所以"撤销其他会话"这一步没做成。
+      const concurrentHash = await hashPassword(NEW_PASSWORD);
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let pending: Promise<ApiResult<ErrorBody>> | null = null;
+
+      async function requestParkedOnRowLock(): Promise<boolean> {
+        // 文本是按 postgres.js 实际发出的样子匹配的：那条 CAS 带着模板里的换行和 $n 占位符进来，
+        // 所以只能用子句片段认，不能用 "UPDATE users SET password_hash%" 这种前缀。
+        const rows = await sql<{ count: string }[]>`
+          SELECT count(*) AS count
+          FROM pg_stat_activity
+          WHERE datname = current_database()
+            AND pid <> pg_backend_pid()
+            AND wait_event_type = 'Lock'
+            AND wait_event = 'transactionid'
+            AND query LIKE ${'%UPDATE users%'}
+            AND query LIKE ${'%password_hash%'}
+        `;
+        return rows[0]!.count !== '0';
+      }
+
+      async function waitUntil(predicate: () => Promise<boolean>, timeoutMs: number): Promise<boolean> {
+        const deadline = Date.now() + timeoutMs;
+        for (;;) {
+          if (await predicate()) return true;
+          if (Date.now() >= deadline) return false;
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+      }
+
+      const sessionsBefore = await sessionCount();
+      try {
+        const blocker = sql.begin(async (tx) => {
+          await tx`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
+          await gate;
+          await tx`
+            UPDATE users SET password_hash = ${concurrentHash}, password_updated_at = now()
+            WHERE id = ${userId}
+          `;
+        });
+
+        pending = call<ErrorBody>('POST', '/api/auth/password/change', mine, {
+          currentPassword: PASSWORD,
+          newPassword: 'third-long-password-77',
+        });
+        expect(await waitUntil(requestParkedOnRowLock, 5_000)).toBe(true);
+        release();
+        await blocker;
+
+        const raced = await pending;
+        pending = null;
+        expectError(raced, 409, 'PASSWORD_CHANGED_CONCURRENTLY');
+        expect(raced.body.error.message).toBe('密码已被其他会话修改，请重新登录');
+
+        // 输的一方一行都不许留下：会话没被撤销、没有成功事件、赢的那次改动作数。
+        expect(await sessionCount()).toBe(sessionsBefore);
+        expect(await changeEvents('success')).toBe('0');
+        expect((await call('GET', '/api/me', other)).status).toBe(200);
+        expect((await loginPassword(email, PASSWORD)).status).toBe(401);
+        expect((await loginPassword(email, NEW_PASSWORD)).status).toBe(200);
+
+        // 正控制：同一账号在密码已是最新值之后再改一次，走的就是正常成功路径。
+        const afterWin = await login(email, NEW_PASSWORD);
+        const normal = await call<ChangePasswordResponse>('POST', '/api/auth/password/change', afterWin, {
+          currentPassword: NEW_PASSWORD,
+          newPassword: 'fourth-long-password-88',
+        });
+        expect(normal.status).toBe(200);
+        expect(await changeEvents('success')).toBe('1');
+      } finally {
+        release();
+        if (pending) await pending.catch(() => undefined);
+      }
+    },
+    25_000,
+  );
 });

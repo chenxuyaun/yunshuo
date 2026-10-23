@@ -28,6 +28,13 @@ interface ErrorBody {
   error: { code: string; message: string; details?: unknown };
 }
 
+// 路由层（maxParamLength）在应用错误处理器之前就回话，用的是框架自己的扁平形状。
+interface FrameworkErrorBody {
+  error: string;
+  code: string;
+  message: string;
+}
+
 const RUN_ID = randomUUID().slice(0, 8);
 const EMAIL_SUFFIX = `@m5-${RUN_ID}.test`;
 const PASSWORD = 'correct-horse-battery-staple';
@@ -668,5 +675,162 @@ suite('M5-A 本地账号、邀请与成员角色', () => {
       401,
       'LOGIN_FAILED',
     );
+  });
+
+  it('一句 INVITE_INVALID 回答"令牌太短"和"令牌不存在"，一句 INVITE_NOT_FOUND 回答四种撤销失败', async () => {
+    async function revokeAudits(): Promise<string> {
+      const rows = await sql<{ count: string }[]>`
+        SELECT count(*) AS count FROM audit_log
+        WHERE workspace_id = ${workspaceA} AND action = 'member.invite.revoke'
+      `;
+      return rows[0]!.count;
+    }
+
+    async function counts(): Promise<{ invites: string; users: string }> {
+      const [inviteRows, userRows] = await Promise.all([
+        sql<{ count: string }[]>`SELECT count(*) AS count FROM workspace_invites`,
+        sql<{ count: string }[]>`
+          SELECT count(*) AS count FROM users WHERE email LIKE ${`%${EMAIL_SUFFIX}`}
+        `,
+      ]);
+      return { invites: inviteRows[0]!.count, users: userRows[0]!.count };
+    }
+
+    const baseline = await counts();
+
+    // ① "令牌形状不对"由两层分别回答，两层说的话不一样：
+    //    短于 20 的那一支轮到 checkedToken（400，复用服务里那句"邀请链接无效"，是应用自己的
+    //    {error:{code,message}} 形状）；而"长于 200"根本轮不到它——Fastify 的 maxParamLength
+    //    默认 100，路由在进 setErrorHandler 之前就用 414 回话，带的是框架的
+    //    {error:'Bad Request', code:'FST_ERR_MAX_PARAM_LENGTH'} 形状。
+    //    也就是说：checkedToken 里 > 200 那一支从 HTTP 面打不到（要把它当可测分支，
+    //    得先抬高超限，那是产品决定）；而这条拒绝不归一化、消息里把整条请求路径原样回显。
+    const tooShort = 'short-token';
+    const preview = await call<ErrorBody>('GET', `/api/invites/${tooShort}`, null);
+    expectError(preview, 400, 'INVITE_INVALID');
+    expect(preview.body.error.message).toBe('邀请链接无效');
+    expectError((await acceptInvite(tooShort, {})) as ApiResult<unknown>, 400, 'INVITE_INVALID');
+
+    const tooLong = 'x'.repeat(201);
+    const longPreview = await call<FrameworkErrorBody>('GET', `/api/invites/${tooLong}`, null);
+    expect(longPreview.status).toBe(414);
+    expect(longPreview.body.code).toBe('FST_ERR_MAX_PARAM_LENGTH');
+    expect(longPreview.body.error).toBe('Bad Request');
+    expect(longPreview.body.message).toContain(`/api/invites/${tooLong}`);
+    const longAccept = await acceptInvite(tooLong, {});
+    expect(longAccept.status).toBe(414);
+    expect((longAccept.body as unknown as FrameworkErrorBody).code).toBe(
+      'FST_ERR_MAX_PARAM_LENGTH',
+    );
+
+    // 请求体解析排在令牌检查之前（routes/identity.ts:48 对 :49），所以坏令牌 + 坏请求体
+    // 先响契约的 VALIDATION，而不是形状那句 INVITE_INVALID。
+    expectError(
+      (await acceptInvite(tooShort, { name: '甲', password: '123' })) as ApiResult<unknown>,
+      400,
+      'VALIDATION',
+    );
+    expect(await counts()).toEqual(baseline);
+
+    // ② 形状合法但查无此令牌：预览与接受都是 404 同一句。
+    const ghost = randomUUID().replaceAll('-', '');
+    expectError(
+      await call<ErrorBody>('GET', `/api/invites/${ghost}`, null),
+      404,
+      'INVITE_INVALID',
+    );
+    expectError(
+      (await acceptInvite(ghost, {})) as ApiResult<unknown>,
+      404,
+      'INVITE_INVALID',
+    );
+    expect(await counts()).toEqual(baseline);
+
+    // ③ 新邮箱的邀请：称呼与密码是"没有既有账号可登录"时才需要补的两项，
+    //    缺任意一项都落进同一句 INVITE_PROFILE_REQUIRED。文案里的"至少 10 位"不是这道闸管的
+    //    ——够长才轮到服务层，太短在契约就被拦走（上一条 ① 已经钉过一次）。
+    const profileEmail = `profile-required${EMAIL_SUFFIX}`;
+    const profileInvite = await createInvite(ownerA, profileEmail, 'viewer');
+    const profileToken = inviteToken(profileInvite);
+    for (const payload of [{}, { name: '只给称呼' }, { password: NEW_PASSWORD }]) {
+      const refused = await acceptInvite(profileToken, payload);
+      expectError(refused as ApiResult<unknown>, 400, 'INVITE_PROFILE_REQUIRED');
+      expect((refused.body as ErrorBody).error.message).toBe('请填写称呼和至少 10 位密码');
+    }
+    expect(await counts()).toEqual({
+      invites: String(Number(baseline.invites) + 1),
+      users: baseline.users,
+    });
+
+    // ④ 撤销的一句 404 回答四种失败：不存在、已撤销、已接受、别的区的邀请。
+    //    谓词是 UPDATE … WHERE id AND workspace_id AND accepted_at IS NULL AND revoked_at IS NULL，
+    //    四种都只能得到"匹配 0 行"，界面因此无法区分贴错 id 与手慢了一步。
+    //    四种形状逐个记标签再一起比：否则去掉某一条谓词时，红字只说"这一行不对"，
+    //    说不出是四种里的哪一种被放行了。
+    const ghostId = randomUUID();
+    const revokedTwice = await createInvite(ownerA, `revoke-twice${EMAIL_SUFFIX}`, 'viewer');
+    const revokedId = revokedTwice.body.invite.id;
+    const auditBeforeFirst = await revokeAudits();
+    expect((await call('DELETE', `/api/workspace/invites/${revokedId}`, ownerA)).status).toBe(200);
+    expect(await revokeAudits()).toBe(String(Number(auditBeforeFirst) + 1));
+
+    const acceptedInvite = await createInvite(ownerA, `revoke-accepted${EMAIL_SUFFIX}`, 'viewer');
+    expect(
+      (await acceptInvite(inviteToken(acceptedInvite), { name: '被撤销过', password: NEW_PASSWORD }))
+        .status,
+    ).toBe(200);
+
+    const foreign = await createInvite(ownerB, `revoke-foreign${EMAIL_SUFFIX}`, 'viewer');
+    const auditBeforeRefusals = await revokeAudits();
+    const refusalShapes = [
+      ['不存在', ghostId],
+      ['已撤销', revokedId],
+      ['已接受', acceptedInvite.body.invite.id],
+      ['别的区', foreign.body.invite.id],
+    ] as const;
+    const refusals: {
+      label: string;
+      status: number;
+      code: string;
+      message: string;
+    }[] = [];
+    for (const [label, inviteId] of refusalShapes) {
+      const refused = await call<ErrorBody>('DELETE', `/api/workspace/invites/${inviteId}`, ownerA);
+      const error = (refused.body as Partial<ErrorBody>).error;
+      refusals.push({
+        label,
+        status: refused.status,
+        code: error?.code ?? '（成功，没有错误体）',
+        message: error?.message ?? '',
+      });
+    }
+    // 比的是"哪一种形状说了什么话"（按形状名建键）：红字里直接带形状名，
+    // 不用猜是四条谓词里的哪一条松了。
+    expect(
+      Object.fromEntries(
+        refusals.map((row) => [
+          row.label,
+          { status: row.status, code: row.code, message: row.message },
+        ]),
+      ),
+    ).toEqual({
+      不存在: { status: 404, code: 'INVITE_NOT_FOUND', message: '邀请不存在、已接受或已撤销' },
+      已撤销: { status: 404, code: 'INVITE_NOT_FOUND', message: '邀请不存在、已接受或已撤销' },
+      已接受: { status: 404, code: 'INVITE_NOT_FOUND', message: '邀请不存在、已接受或已撤销' },
+      别的区: { status: 404, code: 'INVITE_NOT_FOUND', message: '邀请不存在、已接受或已撤销' },
+    });
+    // 四次拒绝一条审计都不留（审计写在 UPDATE 成功之后），而别人区那条邀请没有被顺手撤销。
+    expect(await revokeAudits()).toBe(auditBeforeRefusals);
+    const foreignRow = await sql<{ revoked_at: Date | null; accepted_at: Date | null }[]>`
+      SELECT revoked_at, accepted_at FROM workspace_invites WHERE id = ${foreign.body.invite.id}
+    `;
+    expect(foreignRow[0]).toEqual({ revoked_at: null, accepted_at: null });
+    // 作者没有撤销权：这一句在归属检查之前，403 与 404 是两种回答。
+    expectError(
+      await call<ErrorBody>('DELETE', `/api/workspace/invites/${revokedId}`, invitedAuthor),
+      403,
+      'FORBIDDEN',
+    );
+    expect(await revokeAudits()).toBe(auditBeforeRefusals);
   });
 });
