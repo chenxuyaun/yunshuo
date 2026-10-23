@@ -2053,6 +2053,210 @@ suite('M2 修订 / 回滚 / 豁免', () => {
     expect(detail.stagedDraft).toBeNull();
     expect(detail.status).toBe('canon');
   });
+
+  it('同版本只许一条待审豁免：并发那次由行锁与应用层闸先答，闸瞎了才轮到唯一索引', async () => {
+    // 起点：上一个用例结束时章节停在第 8 版正典。挑一个严格更早、且从未挂过豁免的版本当目标，
+    // 免得上一族留下的 pending/approved 记录替本轮回答问题。
+    const currentRows = await sql<{ current_version_id: string | null }[]>`
+      SELECT current_version_id FROM chapters WHERE id = ${chapterId}
+    `;
+    const currentVersionId = currentRows[0]?.current_version_id;
+    if (!currentVersionId) throw new Error('测试章节缺少当前正典版本，无法验证并发豁免申请');
+    const targetRows = await sql<{ id: string }[]>`
+      SELECT v.id
+      FROM canon_versions v
+      WHERE v.chapter_id = ${chapterId}
+        AND v.id <> ${currentVersionId}
+        AND NOT EXISTS (SELECT 1 FROM waivers w WHERE w.target_version_id = v.id)
+      ORDER BY v.version_no DESC
+      LIMIT 1
+    `;
+    const targetVersionIdFound = targetRows[0]?.id;
+    if (!targetVersionIdFound) throw new Error('测试章节没有干净的更早版本，无法验证并发豁免申请');
+    // 抄本文件既有写法：narrowing 不跨函数声明的闭包，先落成类型为 string 的常量再给
+    // waiverTrail 用，否则里面那条 SQL 的参数会被推成 never。
+    const targetVersionId: string = targetVersionIdFound;
+
+    const waiversPath = `/api/chapters/${chapterId}/waivers`;
+
+    async function waiverTrail(): Promise<{
+      rows: string;
+      pendingOnTarget: string;
+      events: string;
+      audits: string;
+    }> {
+      const rows = await sql<
+        { rows: string; pendingOnTarget: string; events: string; audits: string }[]
+      >`
+        SELECT
+          (SELECT count(*)::text FROM waivers WHERE chapter_id = ${chapterId}) AS rows,
+          (SELECT count(*)::text FROM waivers
+             WHERE target_version_id = ${targetVersionId} AND status = 'pending') AS "pendingOnTarget",
+          (SELECT count(*)::text FROM events
+             WHERE aggregate_id = ${chapterId} AND event_type = 'waiver.requested') AS events,
+          (SELECT count(*)::text FROM audit_log
+             WHERE action = 'waiver.request' AND metadata ->> 'chapterId' = ${chapterId}) AS audits
+      `;
+      return rows[0]!;
+    }
+
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    // 竞争者拿到章节行锁、并把那条未提交的 pending 写进账上之后，才允许第二个请求出发。
+    // 不等这一步就直接发请求，两边就开始抢锁：抢赢的那次会先建出豁免，竞争者的 INSERT
+    // 反而撞唯一索引——窗口就不再是"应用层闸先答"，而是碰运气了。
+    let signalLockHeld: () => void = () => undefined;
+    const lockHeld = new Promise<void>((resolve) => {
+      signalLockHeld = resolve;
+    });
+
+    async function requestParkedOnChapterLock(): Promise<boolean> {
+      // 认的是 loadChapter 那句 FOR UPDATE OF c 的子句片段：postgres.js 原样发送带换行与
+      // $n 占位符的模板文本，前缀 LIKE 永不命中（§二十一 踩过的坑）。
+      const rows = await sql<{ count: string }[]>`
+        SELECT count(*) AS count
+        FROM pg_stat_activity
+        WHERE datname = current_database()
+          AND pid <> pg_backend_pid()
+          AND wait_event_type = 'Lock'
+          AND wait_event = 'transactionid'
+          AND query LIKE ${'%FOR UPDATE OF c%'}
+      `;
+      return rows[0]!.count !== '0';
+    }
+
+    async function waitUntil(
+      predicate: () => Promise<boolean>,
+      timeoutMs: number,
+    ): Promise<boolean> {
+      const deadline = Date.now() + timeoutMs;
+      for (;;) {
+        if (await predicate()) return true;
+        if (Date.now() >= deadline) return false;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+    }
+
+    const competitorId = randomUUID();
+    const before = await waiverTrail();
+    let pending: Promise<ApiResult<ErrorBody>> | null = null;
+    let blocker: Promise<unknown> | null = null;
+
+    try {
+      // 竞争者：另一个会话已经把同一条待审豁免写到一半——行还没提交，章节行锁与那条
+      // 唯一索引（waivers_pending_unique）的插入权都攥在它手里。
+      blocker = sql.begin(async (tx) => {
+        await tx`SELECT id FROM chapters WHERE id = ${chapterId} FOR UPDATE`;
+        await tx`
+          INSERT INTO waivers (
+            id, chapter_id, target_version_id, gate_key, reason, status, requested_by
+          )
+          VALUES (
+            ${competitorId}, ${chapterId}, ${targetVersionId}, 'rollback',
+            '另一个会话先一步写下的待审豁免', 'pending', ${author.me.user.id}
+          )
+        `;
+        signalLockHeld();
+        await gate;
+      });
+
+      // 只等信号、不等 blocker：blocker 要握着锁直到 release()，等它就等于自己锁自己。
+      // 若它在拿到锁之前就炸了，race 直接把那个真实错误抛出来，而不是耗到用例超时。
+      await Promise.race([lockHeld, blocker]);
+
+      pending = call<ErrorBody>(author.cookie, 'POST', waiversPath, {
+        targetVersionId,
+        gateKey: 'rollback',
+        reason: '同版本第二条待审豁免：该由哪道闸回答',
+      });
+
+      // 请求连"看没看见那条未提交的豁免"都还没来得及问——它卡在章节行锁上。
+      // 这一步就是本轮要钉的东西：窗口不是靠运气关上的。
+      expect(await waitUntil(requestParkedOnChapterLock, 5_000)).toBe(true);
+
+      release();
+      await blocker;
+
+      const raced = await pending;
+      pending = null;
+
+      // 回答的是应用层的开放豁免闸（waiver-service.ts:96），不是唯一索引兜底（:148）。
+      // 两句文案逐字相同，能分辨的只有 code 与 details——所以归因必须钉码，不能只钉文案。
+      expectError(raced, 409, 'WAIVER_ALREADY_EXISTS');
+      expect((raced.body as ErrorBody).error.message).toBe('该版本已有待审批的回滚豁免');
+      expect((raced.body as ErrorBody).error.details).toEqual({
+        waiverId: competitorId,
+        status: 'pending',
+      });
+
+      // 输的那次一行都不留：账上多出来的是竞争者自己那条豁免，事件与审计的增量是 0
+      //（竞争者走的是裸 SQL，本来就不产审计与事件）。
+      const after = await waiverTrail();
+      expect(after.pendingOnTarget).toBe('1');
+      expect(Number(after.rows)).toBe(Number(before.rows) + 1);
+      expect(after.events).toBe(before.events);
+      expect(after.audits).toBe(before.audits);
+
+      // 正控制：把那条待审豁免判掉之后，同一个目标版本还能再申请一次——
+      // 挡住上面那次的是"有一条 pending"，不是夹具坏了，也不是那条版本行有问题。
+      const rejected = await call<WaiverView>(
+        owner.cookie,
+        'POST',
+        `${waiversPath}/${competitorId}/reject`,
+        { note: '竞争者这条作废，腾出目标版本' },
+      );
+      expect(rejected.status).toBe(200);
+      expect(rejected.body.status).toBe('rejected');
+      const again = await call<WaiverView>(author.cookie, 'POST', waiversPath, {
+        targetVersionId,
+        gateKey: 'rollback',
+        reason: '上一条已判掉，同版本允许重新申请',
+      });
+      expect(again.status).toBe(200);
+      expect(again.body.status).toBe('pending');
+      expect(again.body.id).not.toBe(competitorId);
+
+      const settled = await waiverTrail();
+      expect(settled.pendingOnTarget).toBe('1');
+      expect(Number(settled.rows)).toBe(Number(after.rows) + 1);
+      expect(Number(settled.events)).toBe(Number(after.events) + 1);
+      expect(Number(settled.audits)).toBe(Number(after.audits) + 1);
+
+      // ③ 让应用层闸"看不见"那条 pending，唯一索引就轮到自己说话：把上面新建的那条 pending
+      //    伪装成"已经被某个正典版本用掉了"（canon_versions.waiver_id 指过去），闸的
+      //    NOT EXISTS 会把它排除掉，而 waivers_pending_unique 只看 status='pending'。
+      //    这个前置状态应用自己造不出来（用掉的豁免必然是 approved），所以是 SQL 伪造的夹具，
+      //    钉的是"闸瞎了之后索引仍拦住插入，并把 23505 映射成能读的 409"这一件事。
+      await sql`
+        UPDATE canon_versions SET waiver_id = ${again.body.id} WHERE id = ${targetVersionId}
+      `;
+      const indexOnly = await call<ErrorBody>(lead.cookie, 'POST', waiversPath, {
+        targetVersionId,
+        gateKey: 'rollback',
+        reason: '闸看不见那条 pending，该由唯一索引回答',
+      });
+      expectError(indexOnly, 409, 'WAIVER_PENDING_EXISTS');
+      // 两句文案逐字相同，分辨只有两条：码名，以及有没有 details。
+      expect((indexOnly.body as ErrorBody).error.message).toBe('该版本已有待审批的回滚豁免');
+      expect((indexOnly.body as ErrorBody).error.details).toBeUndefined();
+
+      // 被索引拒掉的这次同样一行不留：pending 还是那一条，事件与审计没有第三次增量。
+      const indexed = await waiverTrail();
+      expect(indexed.pendingOnTarget).toBe('1');
+      expect(indexed.rows).toBe(settled.rows);
+      expect(indexed.events).toBe(settled.events);
+      expect(indexed.audits).toBe(settled.audits);
+      await sql`UPDATE canon_versions SET waiver_id = NULL WHERE id = ${targetVersionId}`;
+    } finally {
+      // 前面任何一步炸了都要把锁放开，并等竞争者收尾：不然那条事务会一直挂着，
+      // 未处理的拒绝还会把整个测试进程带崩。
+      release();
+      if (pending) await pending;
+      if (blocker) await blocker.catch(() => undefined);
+    }
+  }, 25_000);
 });
 
 afterAll(async () => {
