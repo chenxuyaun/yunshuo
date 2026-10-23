@@ -38,6 +38,9 @@ type StubAction =
     }
   | { kind: 'http'; status: number; message?: string }
   | { kind: 'partial'; content: string }
+  | { kind: 'non-json'; raw: string }
+  | { kind: 'upstream-error'; message: string; code: string }
+  | { kind: 'sse-upstream-error'; message: string; code: string }
   | { kind: 'empty' };
 
 interface StubRequest {
@@ -282,12 +285,34 @@ suite('M3 持久化锁 / 重试 / 故障转移 / 成本', () => {
           return;
         }
 
+        // 200 但不是 SSE 流：一句走「解析不出 JSON」，一句走「JSON 里是上游错误」。
+        if (action.kind === 'non-json' || action.kind === 'upstream-error') {
+          response.writeHead(200, { 'content-type': 'application/json' });
+          response.end(
+            action.kind === 'non-json'
+              ? action.raw
+              : JSON.stringify({ error: { code: action.code, message: action.message } }),
+          );
+          return;
+        }
+
         response.writeHead(200, {
           'content-type': 'text/event-stream; charset=utf-8',
           'cache-control': 'no-cache',
         });
         if (action.kind === 'empty') {
           response.write('data: [DONE]\n\n');
+          response.end();
+          return;
+        }
+        // 真·流式中途报错：错误事件和正文事件混在同一条 SSE 里，走的是另一处判定分支。
+        if (action.kind === 'sse-upstream-error') {
+          response.write(
+            `data: ${JSON.stringify({ choices: [{ delta: { content: '前半段正文。' } }] })}\n\n`,
+          );
+          response.write(
+            `data: ${JSON.stringify({ error: { code: action.code, message: action.message } })}\n\n`,
+          );
           response.end();
           return;
         }
@@ -917,6 +942,107 @@ suite('M3 持久化锁 / 重试 / 故障转移 / 成本', () => {
       expect(audit[0]?.actor_type).toBe('human');
       expect(audit[0]?.result).toBe('success');
       expect(audit[0]?.metadata?.name).toBe('M3 无密钥服务商');
+    },
+  );
+
+  it(
+    '坏响应族按成因分四个码：只有空正文原地重试，JSON 与 SSE 两条上游错误都先脱敏',
+    async () => {
+      // 备用服务商显式关掉：这一族问的是「同一份坏响应被怎样归因」，不是故障转移。
+      // 上一条用例恰好也把它关了，但那是用例顺序的巧合，不能当夹具依赖。
+      await sql`UPDATE model_providers SET is_enabled = false WHERE id = ${backupId}`;
+
+      async function trace() {
+        const rows = await sql<{ proposals: string; calls: string; locks: string; drafts: string }[]>`
+          SELECT
+            (SELECT count(*) FROM ai_proposals WHERE chapter_id = ${chapterId})::text AS proposals,
+            (SELECT count(*) FROM model_calls WHERE chapter_id = ${chapterId})::text AS calls,
+            (SELECT count(*) FROM ai_generation_locks WHERE chapter_id = ${chapterId})::text AS locks,
+            (SELECT count(*) FROM draft_revisions dr
+               JOIN draft_branches db ON db.id = dr.branch_id
+              WHERE db.chapter_id = ${chapterId})::text AS drafts
+        `;
+        return rows[0]!;
+      }
+
+      interface Failure {
+        code: string;
+        message: string;
+      }
+
+      async function failWith(plan: StubAction, attempts: number): Promise<Failure> {
+        const before = await trace();
+        setPlans({ p1: [plan] });
+        const result = await generate();
+        expect(result.status).toBe(200);
+        expect(result.proposal).toBeNull();
+        const errorEvent = result.events.find((event) => event.event === 'error');
+        if (!errorEvent) throw new Error('坏响应没有发出 error 事件');
+        const failure = errorEvent.data as Failure;
+        expect(requests.map((request) => request.provider)).toEqual(
+          Array.from({ length: attempts }, () => 'p1'),
+        );
+        // 一次失败生成＝一条提案行；调用记录按实际尝试次数；锁释放、草稿不动。
+        const after = await trace();
+        expect(after).toEqual({
+          ...before,
+          proposals: String(Number(before.proposals) + 1),
+          calls: String(Number(before.calls) + attempts),
+        });
+        const row = await sql<{ status: string; error_code: string | null; attempts: number }[]>`
+          SELECT status, error_code, attempts FROM ai_proposals
+          WHERE chapter_id = ${chapterId}
+          ORDER BY created_at DESC, id DESC
+          LIMIT 1
+        `;
+        // 界面读到的码与落库归因必须是同一个字面量，否则报表与提示各说各话。
+        expect(row[0]).toEqual({ status: 'failed', error_code: failure.code, attempts });
+        return failure;
+      }
+
+      const empty = await failWith({ kind: 'empty' }, 2);
+      // 重试过的那一次，界面文案要带上尝试次数——这是「为什么等了这么久」唯一的凭据。
+      expect(empty).toEqual({
+        code: 'EMPTY_OUTPUT',
+        message: '已尝试 2 次：模型返回空正文，未生成提案',
+      });
+
+      const tooLarge = await failWith(
+        { kind: 'sse', content: '铜'.repeat(60_001), promptTokens: 10, completionTokens: 5 },
+        1,
+      );
+      expect(tooLarge).toEqual({
+        code: 'OUTPUT_TOO_LARGE',
+        message: '模型输出超过 60000 字上限，已中止；提案未完成。',
+      });
+
+      const badBody = await failWith({ kind: 'non-json', raw: '这一句不是 JSON' }, 1);
+      expect(badBody).toEqual({
+        code: 'AI_BAD_RESPONSE',
+        message: '模型服务返回的不是 JSON 或 SSE 流',
+      });
+
+      const upstream = await failWith(
+        { kind: 'upstream-error', message: '内容策略拒绝：key-one 无效', code: 'content_policy' },
+        1,
+      );
+      expect(upstream.code).toBe('AI_UPSTREAM_ERROR');
+      expect(upstream.message).toContain('内容策略拒绝');
+      expect(upstream.message).toContain('••••');
+      expect(upstream.message).not.toContain('key-one');
+
+      // 同一条上游错误换成 SSE 里的一条 data 事件，走的是另一处判定分支：
+      // 只有两处都断言，删掉任意一处的脱敏才不会悄悄漏过去。
+      // 密钥必须是这一条真正被调用的 p1 的 key-one：备用服务商已关掉，换成 key-two
+      // 脱敏函数根本没有可替换的对象，那句 not.toContain 就成了永远成立的假阳性。
+      const upstreamInStream = await failWith(
+        { kind: 'sse-upstream-error', message: '内容策略拒绝：key-one 无效', code: 'content_policy' },
+        1,
+      );
+      expect(upstreamInStream.code).toBe('AI_UPSTREAM_ERROR');
+      expect(upstreamInStream.message).toContain('内容策略拒绝');
+      expect(upstreamInStream.message).toContain('••••');
+      expect(upstreamInStream.message).not.toContain('key-one');
     },
   );
 });
