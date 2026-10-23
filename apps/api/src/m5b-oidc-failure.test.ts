@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 import type { FastifyInstance } from 'fastify';
 import { closeDb, sql } from '@yunshuo/db';
 import { exportJWK, SignJWT } from 'jose';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 /**
  * 这一族钉的是"企业身份服务不配合"时的归因码：发现端点坏掉、token 端点坏掉、ID Token 缺东西、
@@ -13,11 +13,12 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
  * 缺 authorization_endpoint）就会被缓存挡住，再也走不到。**本文件的用例顺序因此是断言的一部分**：
  * 先跑五种发现失败（失败不写缓存），再跑一次成功，其余用例共享那份正常文档。
  *
- * 同一个缓存也划出了本文件诚实留下的边界：OIDC_SIGNING_ALGORITHM_UNSUPPORTED 与
- * OIDC_CLIENT_AUTH_UNSUPPORTED 都由发现文档决定，要和正常文档共存必须再起一个模块实例；
- * OIDC_IDENTITY_CONFLICT 的三处抛出都是并发窗口/唯一冲突兜底，HTTP 面单线程构造不出来。
- * 这三条不装作用例覆盖了，见审计报告 §三十七。（码名故意不加引号：错误码筛子把任何引号包着的
- * 码都算成"测试里引用过"，写在注释里加引号会让这三个没断过的码凭空从空白名单上消失。）
+ * 同一个缓存也划出了本文件的形状：文档级能力码（客户端认证方式、ID Token 签名算法）要换一份
+ * 发现文档，不必再起模块实例——最后两个用例只伪造 Date 把 5 分钟缓存推过期，各自拿一份能力受限
+ * 的文档；它们因此必须排在文件末尾，否则后面的用例会撞上被推进过的时钟与那份受限文档。
+ * OIDC_IDENTITY_CONFLICT 的三处抛出仍是并发窗口/唯一冲突兜底，HTTP 面单线程构造不出来，
+ * 这一条不装作用例覆盖了，见审计报告 §三十七与 §四十三。（码名故意不加引号：错误码筛子把任何
+ * 引号包着的码都算成"测试里引用过"，写在注释里加引号会让没断过的码凭空从空白名单上消失。）
  */
 interface MockIdentity {
   email?: string;
@@ -36,9 +37,15 @@ type DiscoveryFault =
 
 type TokenFault = 'ok' | 'http-400' | 'missing-id-token' | 'empty-id-token';
 
+interface DiscoveryOverrides {
+  tokenEndpointAuthMethods?: string[];
+  idTokenSigningAlgs?: string[];
+}
+
 interface MockIdp {
   issuer: string;
   setDiscoveryFault(fault: DiscoveryFault): void;
+  setDiscoveryOverrides(overrides: DiscoveryOverrides | null): void;
   setTokenFault(fault: TokenFault): void;
   setIdentity(identity: MockIdentity): void;
   setNonce(nonce: string): void;
@@ -67,6 +74,7 @@ async function startMockIdp(): Promise<MockIdp> {
   const publicJwk = await exportJWK(publicKey);
   const kid = 'failure-key';
   let discoveryFault: DiscoveryFault = 'none';
+  let discoveryOverrides: DiscoveryOverrides | null = null;
   let tokenFault: TokenFault = 'ok';
   let identity: MockIdentity = { subject: 'subject-default' };
   let nonce = '';
@@ -87,8 +95,10 @@ async function startMockIdp(): Promise<MockIdp> {
           authorization_endpoint: `${issuer}/authorize`,
           token_endpoint: `${issuer}/token`,
           jwks_uri: `${issuer}/jwks`,
-          token_endpoint_auth_methods_supported: ['client_secret_post'],
-          id_token_signing_alg_values_supported: ['RS256'],
+          token_endpoint_auth_methods_supported:
+            discoveryOverrides?.tokenEndpointAuthMethods ?? ['client_secret_post'],
+          id_token_signing_alg_values_supported:
+            discoveryOverrides?.idTokenSigningAlgs ?? ['RS256'],
         };
         if (discoveryFault === 'wrong-issuer') document.issuer = 'https://elsewhere.example.test';
         if (discoveryFault === 'missing-auth') delete document.authorization_endpoint;
@@ -156,6 +166,9 @@ async function startMockIdp(): Promise<MockIdp> {
     setDiscoveryFault(fault) {
       discoveryFault = fault;
     },
+    setDiscoveryOverrides(next) {
+      discoveryOverrides = next;
+    },
     setTokenFault(fault) {
       tokenFault = fault;
     },
@@ -196,6 +209,8 @@ interface CallbackResult {
 
 suite('M5-B OIDC 失败族：发现、兑换与账号解析的归因码', () => {
   let app: FastifyInstance;
+  // 只累加、不回退：缓存过期时间按写入时的 Date.now() 记，下一发必须真的越过它。
+  let clockOffsetMs = 0;
   const emails = {
     noEmail: `oidc-no-email-${RUN_ID}@example.test`,
     noProvision: `oidc-no-provision-${RUN_ID}@example.test`,
@@ -271,6 +286,7 @@ suite('M5-B OIDC 失败族：发现、兑换与账号解析的归因码', () => 
   // 与自身无关的码上（G8 首轮就是这么连带红了 EMAIL_REQUIRED 与 ACCOUNT_NOT_FOUND 两条）。
   afterEach(() => {
     mock?.setDiscoveryFault('none');
+    mock?.setDiscoveryOverrides(null);
     mock?.setTokenFault('ok');
   });
 
@@ -400,5 +416,46 @@ suite('M5-B OIDC 失败族：发现、兑换与账号解析的归因码', () => 
       WHERE subject = ${`subject-failure-no-provision-${RUN_ID}`}
     `;
     expect(identities[0]?.count).toBe(0);
+  });
+
+  it('文档只支持 private_key_jwt：回调归因 OIDC_CLIENT_AUTH_UNSUPPORTED，token 端点一次没打', async () => {
+    clockOffsetMs += 6 * 60_000;
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + clockOffsetMs);
+    try {
+      mock!.setDiscoveryOverrides({ tokenEndpointAuthMethods: ['private_key_jwt'] });
+      const before = mock!.tokenCalls();
+      const result = await callbackWithToken();
+      // 鉴权方式在发请求之前就判死：没有 token 调用，也就没有可兑换的 ID Token。
+      expect(mock!.tokenCalls()).toBe(before);
+      expect(result.status).toBe(302);
+      expect(errorCode(result)).toBe('OIDC_CLIENT_AUTH_UNSUPPORTED');
+      expect(hasSessionCookie(result.entries)).toBe(false);
+    } finally {
+      mock!.setDiscoveryOverrides(null);
+      vi.useRealTimers();
+    }
+  });
+
+  it('文档只报 HS256：token 换到了，但 ID Token 归因 OIDC_SIGNING_ALGORITHM_UNSUPPORTED', async () => {
+    clockOffsetMs += 6 * 60_000;
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + clockOffsetMs);
+    try {
+      mock!.setDiscoveryOverrides({
+        tokenEndpointAuthMethods: ['client_secret_post'],
+        idTokenSigningAlgs: ['HS256'],
+      });
+      const before = mock!.tokenCalls();
+      const result = await callbackWithToken();
+      // 这一发必须先真的兑换成功：算法白名单是在拿到 ID Token 之后才筛的。
+      expect(mock!.tokenCalls()).toBe(before + 1);
+      expect(result.status).toBe(302);
+      expect(errorCode(result)).toBe('OIDC_SIGNING_ALGORITHM_UNSUPPORTED');
+      expect(hasSessionCookie(result.entries)).toBe(false);
+    } finally {
+      mock!.setDiscoveryOverrides(null);
+      vi.useRealTimers();
+    }
   });
 });
