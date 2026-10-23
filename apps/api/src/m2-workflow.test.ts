@@ -2257,6 +2257,57 @@ suite('M2 修订 / 回滚 / 豁免', () => {
       if (blocker) await blocker.catch(() => undefined);
     }
   }, 25_000);
+
+  it('幂等键对应的提交正在进行：409 COMMIT_IN_PROGRESS，不另起一次提交', async () => {
+    const key = `m2-intent-pending-${randomUUID()}`;
+    const intentId = randomUUID();
+    await sql`
+      INSERT INTO commit_intents (id, idempotency_key, chapter_id, status)
+      VALUES (${intentId}, ${key}, ${chapterId}, 'pending')
+    `;
+
+    const response = await call<ErrorBody>(owner.cookie, 'POST', `/api/chapters/${chapterId}/commit`, {
+      idempotencyKey: key,
+      targetChapterId: chapterId,
+      expectedCurrentVersionId: null,
+      stagedDraftId: randomUUID(),
+    });
+    expectError(response, 409, 'COMMIT_IN_PROGRESS');
+    expect(response.body.error.message).toBe('相同幂等键的提交正在进行，请稍后刷新');
+
+    // 意图行保持原状：没有第二行、没有被改成 committing，也没有写 commits。
+    const intents = await sql<{ status: string; error_code: string | null }[]>`
+      SELECT status, error_code FROM commit_intents WHERE idempotency_key = ${key}
+    `;
+    expect(intents).toEqual([{ status: 'pending', error_code: null }]);
+    const commits = await sql<{ n: string }[]>`
+      SELECT count(*)::text AS n FROM commits WHERE intent_id = ${intentId}
+    `;
+    expect(commits[0]!.n).toBe('0');
+  });
+
+  it('幂等键已标 committed 但提交记录缺失：500 COMMIT_RECORD_MISSING，不伪造成已提交', async () => {
+    const key = `m2-intent-committed-${randomUUID()}`;
+    const intentId = randomUUID();
+    await sql`
+      INSERT INTO commit_intents (id, idempotency_key, chapter_id, status)
+      VALUES (${intentId}, ${key}, ${chapterId}, 'committed')
+    `;
+
+    const response = await call<ErrorBody>(owner.cookie, 'POST', `/api/chapters/${chapterId}/commit`, {
+      idempotencyKey: key,
+      targetChapterId: chapterId,
+      expectedCurrentVersionId: null,
+      stagedDraftId: randomUUID(),
+    });
+    expectError(response, 500, 'COMMIT_RECORD_MISSING');
+    expect(response.body.error.message).toBe('提交记录缺失');
+
+    const commits = await sql<{ n: string }[]>`
+      SELECT count(*)::text AS n FROM commits WHERE intent_id = ${intentId}
+    `;
+    expect(commits[0]!.n).toBe('0');
+  });
 });
 
 afterAll(async () => {
