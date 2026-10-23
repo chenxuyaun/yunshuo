@@ -1259,4 +1259,37 @@ suite('M6-7 账本 AI 建议：生成、人工确认与仅写草稿', () => {
     );
     expectError(retry, 409, 'LEDGER_SUGGESTION_STALE');
   });
+
+  it('不存在或属于其他工作区的建议：采纳与拒绝回同一个 404，且不动原建议', async () => {
+    const unknown = randomUUID();
+    for (const action of ['accept', 'reject'] as const) {
+      const missing = await call<ErrorBody>(
+        'POST',
+        `/api/ledger/suggestions/${unknown}/${action}`,
+        owner,
+        action === 'accept' ? { note: '' } : { note: '理由充分' },
+      );
+      expectError(missing, 404, 'LEDGER_SUGGESTION_NOT_FOUND');
+      expect(missing.body.error.message).toBe('建议不存在或不属于当前工作区');
+    }
+
+    // 真建议 + 外部工作区所有者：同一个 404，不泄露该 id 在别处存在。
+    const entry = await createEntry(characterInput(`林默·越权建议 ${RUN_ID}`));
+    const generated = (await generate(entry.id, chapterTwo)).body as LedgerSuggestionView;
+    expect(generated.status).toBe('ready');
+    for (const action of ['accept', 'reject'] as const) {
+      const foreign = await call<ErrorBody>(
+        'POST',
+        `/api/ledger/suggestions/${generated.id}/${action}`,
+        outsiderOwner,
+        action === 'accept' ? { note: '' } : { note: '越权拒绝' },
+      );
+      expectError(foreign, 404, 'LEDGER_SUGGESTION_NOT_FOUND');
+      expect(foreign.body.error.message).toBe('建议不存在或不属于当前工作区');
+    }
+
+    const listed = await suggestionOf(entry.id, generated.id);
+    expect(listed.status).toBe('ready');
+    expect(listed.decidedByName).toBeNull();
+  });
 });
