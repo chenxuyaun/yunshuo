@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { sql } from '@yunshuo/db';
 import { loginSchema, switchWorkspaceSchema } from '@yunshuo/contracts';
+import type { DevMailboxResponse } from '@yunshuo/contracts';
 import type { Role } from '@yunshuo/domain';
 import {
   clearSessionCookie,
@@ -147,14 +148,23 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     return switchSessionWorkspace(auth.sessionId, auth.user.id, body.workspaceId);
   });
 
-  app.get('/api/dev/mailbox', async () => {
+  app.get('/api/dev/mailbox', async (): Promise<DevMailboxResponse> => {
     if (!env.devAuth || env.mail.mode !== 'memory') {
       throw notFound('DEV_MAILBOX_DISABLED', '开发内存邮箱未启用');
     }
+    // 内存里那条是完整投递入参（还带工作区与用户的内部 id，服务层用例要用），接口面只给
+    // 契约声明的六个键：多出去的内部 id 对这个"登录页也能读"的端点没有任何用处。
     return {
       mode: 'memory' as const,
       delivered: false as const,
-      messages: listMemoryMailbox(),
+      messages: listMemoryMailbox().map(({ id, to, subject, text, template, createdAt }) => ({
+        id,
+        to,
+        subject,
+        text,
+        template,
+        createdAt,
+      })),
     };
   });
 
