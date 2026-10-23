@@ -48,11 +48,18 @@ function smtpTransport(): Transporter {
   return transporter;
 }
 
-function sanitizeError(error: unknown): { code: string; message: string } {
-  const code =
+/**
+ * 投递失败时的归因：码取错误对象自己的 `code`（nodemailer 连不上本机端口给的是它自己的
+ * `ESOCKET`，底层 `ECONNREFUSED` 只在 message 里），没有可用的码才退回通用码。导出是为了让
+ * 兜底码与两处截断能被直接断言——HTTP 面只能造出带 `code` 的那一类错误。
+ */
+export function sanitizeError(error: unknown): { code: string; message: string } {
+  const ownCode =
     typeof error === 'object' && error !== null && 'code' in error
-      ? String((error as { code?: unknown }).code ?? 'MAIL_SEND_FAILED')
-      : 'MAIL_SEND_FAILED';
+      ? String((error as { code?: unknown }).code ?? '')
+      : '';
+  // 空串或纯空白的 code 视同没有：库里不能出现一条「失败了，但归因码是空的」的记录。
+  const code = ownCode.trim() || 'MAIL_SEND_FAILED';
   const raw = error instanceof Error ? error.message : String(error);
   const message = raw.replace(/\s+/g, ' ').trim().slice(0, 300);
   return { code: code.slice(0, 80), message: message || '邮件发送失败' };
