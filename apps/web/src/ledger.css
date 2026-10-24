@@ -1080,3 +1080,115 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- M6-7 AI ledger suggestions ---------- */
+
+.ledger-suggestion-create {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  background: var(--paper-sunk);
+}
+
+.ledger-suggestion-create-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.ledger-suggestion-create-row .field {
+  flex: 1 1 240px;
+}
+
+.ledger-suggestion-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ledger-suggestion-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 253, 247, 0.4);
+}
+
+.ledger-suggestion-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
+.ledger-suggestion-head .muted {
+  font-size: 10.5px;
+}
+
+.ledger-suggestion-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.ledger-suggestion-instruction,
+.ledger-suggestion-rationale {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.ledger-suggestion-proposal {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 11px;
+  border: 1px solid var(--line-strong);
+  background: var(--paper-sunk);
+}
+
+.ledger-suggestion-proposal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 6px 14px;
+  margin: 0;
+}
+
+.ledger-suggestion-proposal-grid dt {
+  color: var(--ink-soft);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+}
+
+.ledger-suggestion-proposal-grid dd {
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.ledger-suggestion-evidence {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+}
+
+.ledger-suggestion-evidence li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}

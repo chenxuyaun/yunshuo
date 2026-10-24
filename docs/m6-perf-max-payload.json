@@ -1,0 +1,190 @@
+{
+  "generatedAt": "2026-10-22T15:59:34.198Z",
+  "base": "http://127.0.0.1:3101",
+  "database": "yunshuo_test",
+  "runId": "d32d1486",
+  "runLabel": "max-payload",
+  "scenario": "载荷上限：单批 1000 章 × 6500 字（请求体 18.15MB，逼近 20MiB 路由上限与 1000 章上限）",
+  "workTitle": "压测作品 d32d1486",
+  "cleanupWindowStart": "2026-10-22 15:59:26.675864+00",
+  "config": {
+    "stages": [
+      1000
+    ],
+    "charsPerChapter": 6500,
+    "longChapterChars": 500000,
+    "repeatsPerEndpoint": 3,
+    "automationRunner": "关闭（AUTOMATION_RUNNER=0，独立实例指向 yunshuo_test）"
+  },
+  "baselineCounts": {
+    "works": 1,
+    "chapters": 2,
+    "canon_versions": 1,
+    "canon_current": 1,
+    "chapter_metadata": 1,
+    "index_status": 1,
+    "gate_evaluations": 0,
+    "ledger_entries": 0,
+    "ledger_versions": 0,
+    "ledger_aliases": 0,
+    "ledger_index_status": 0,
+    "links": 0,
+    "sessions": 0,
+    "events": 3,
+    "audit": 119,
+    "outbox": 0,
+    "canon_chars": 107
+  },
+  "environment": {
+    "modelProvidersInDatabase": "enabled=0 embedding_enabled=0",
+    "indexingWorker": "未启动（只跑独立 API 实例；索引状态停留在 not_configured/pending，检索与嵌入不在本轮测量范围）",
+    "automationRunner": "关闭",
+    "zeroModelSpend": true
+  },
+  "stages": [
+    {
+      "chapterTotal": 1000,
+      "canonChars": 6500021,
+      "import": {
+        "label": "批量导入 1000 章",
+        "chapterCount": 1000,
+        "sentChars": 6499914,
+        "importMs": 4939,
+        "requestBodyBytes": 19036808,
+        "responseBytes": 103969,
+        "storedWordCount": 5981092,
+        "longestChapterChars": 5984
+      },
+      "indexStates": "not_configured=1000",
+      "timeline": {
+        "medianMs": 126,
+        "samples": [
+          126,
+          109,
+          133
+        ],
+        "responseBytes": 112412,
+        "appearances": 1000,
+        "states": 1,
+        "warnings": 0,
+        "scanScope": "canon_current"
+      },
+      "characterContext": {
+        "medianMs": 16,
+        "samples": [
+          16,
+          15,
+          17
+        ],
+        "responseBytes": 681,
+        "characters": 1,
+        "omittedCharacters": 0,
+        "asOfChapterNumber": 500
+      },
+      "foreshadowingReminders": {
+        "medianMs": 32,
+        "samples": [
+          25,
+          32,
+          32
+        ],
+        "responseBytes": 1144,
+        "reminders": 1,
+        "latestCanonChapterNumber": 1000
+      },
+      "foreshadowingReport": {
+        "medianMs": 17,
+        "samples": [
+          21,
+          15,
+          17
+        ],
+        "responseBytes": 934,
+        "items": 1,
+        "summary": {
+          "total": 1,
+          "unresolved": 1,
+          "overdue": 0,
+          "paidOff": 0,
+          "abandoned": 0
+        }
+      },
+      "chapterList": {
+        "medianMs": 15,
+        "samples": [
+          16,
+          14,
+          15
+        ],
+        "responseBytes": 300399,
+        "chapters": 1002
+      },
+      "rawCanonFetch": {
+        "ms": 359,
+        "psqlOverheadMs": 192,
+        "msExcludingProcessStart": 167,
+        "bytes": 18500097
+      },
+      "apiRssMb": 213.1
+    }
+  ],
+  "longChapter": {
+    "import": {
+      "label": "单章长文导入 500000 字",
+      "chapterCount": 1,
+      "sentChars": 500000,
+      "importMs": 107,
+      "requestBodyBytes": 1460174,
+      "responseBytes": 291,
+      "storedWordCount": 460014,
+      "longestChapterChars": 460014
+    },
+    "timelineMedianMs": 129,
+    "timelineSamples": [
+      129,
+      146,
+      117
+    ],
+    "remindersMedianMs": 23
+  },
+  "countsAfterRun": {
+    "works": 2,
+    "chapters": 1003,
+    "canon_versions": 1002,
+    "canon_current": 1002,
+    "chapter_metadata": 1002,
+    "index_status": 1002,
+    "gate_evaluations": 0,
+    "ledger_entries": 2,
+    "ledger_versions": 2,
+    "ledger_aliases": 2,
+    "ledger_index_status": 2,
+    "links": 0,
+    "sessions": 1,
+    "events": 1008,
+    "audit": 1125,
+    "outbox": 2,
+    "canon_chars": 7000021
+  },
+  "apiRssMb": 231.1,
+  "countsAfterCleanup": {
+    "works": 1,
+    "chapters": 2,
+    "canon_versions": 1,
+    "canon_current": 1,
+    "chapter_metadata": 1,
+    "index_status": 1,
+    "gate_evaluations": 0,
+    "ledger_entries": 0,
+    "ledger_versions": 0,
+    "ledger_aliases": 0,
+    "ledger_index_status": 0,
+    "links": 0,
+    "sessions": 0,
+    "events": 3,
+    "audit": 119,
+    "outbox": 0,
+    "canon_chars": 107
+  },
+  "cleanupDrift": {}
+}

@@ -49,6 +49,7 @@ import {
   type ForeshadowingDraftInput,
 } from './ForeshadowingEntryForm.js';
 import { LedgerEntryForm, type LedgerDraftInput } from './LedgerEntryForm.js';
+import { LedgerSuggestionCard } from './LedgerSuggestionCard.js';
 
 interface Props {
   me: MeResponse;
@@ -759,6 +760,7 @@ export function LedgerDialog({ me, chapters, onClose }: Props) {
             ) : entry ? (
               <LedgerEntryDetailView
                 entry={entry}
+                chapters={chapters}
                 versions={versions}
                 versionsLoading={versionsQuery.isLoading}
                 versionsError={versionsQuery.error}
@@ -815,7 +817,7 @@ export function LedgerDialog({ me, chapters, onClose }: Props) {
 
         <footer className="modal-foot">
           <span className="commit-foot-hint">
-            设定、角色与伏笔按工作区隔离；已发布版本不可修改，所有写入进入审计。已发布条目接入检索、AI 上下文引用与门禁提示，提示不改变门禁结论。
+            设定、角色与伏笔按工作区隔离；已发布版本不可修改，所有写入进入审计。已发布条目接入检索、AI 上下文引用与门禁提示，提示不改变门禁结论。AI 只能提出状态变更与伏笔回收建议，采纳后仅写入草稿，发布仍由人工完成。
           </span>
           <button type="button" className="button button-quiet" onClick={onClose}>
             关闭
@@ -874,6 +876,7 @@ function LedgerListItem({
 
 interface DetailViewProps {
   entry: LedgerEntryDetail;
+  chapters: ChapterListItem[];
   versions: LedgerEntryVersionView[];
   versionsLoading: boolean;
   versionsError: unknown;
@@ -909,6 +912,7 @@ interface DetailViewProps {
 
 function LedgerEntryDetailView({
   entry,
+  chapters,
   versions,
   versionsLoading,
   versionsError,
@@ -1151,6 +1155,10 @@ function LedgerEntryDetailView({
           loading={timelineLoading}
           error={timelineError}
         />
+      ) : null}
+
+      {entry.kind === 'character' || entry.kind === 'foreshadowing' ? (
+        <LedgerSuggestionCard entry={entry} chapters={chapters} canWrite={canWrite} />
       ) : null}
 
       {action === 'publish' && entry.draftVersion ? (

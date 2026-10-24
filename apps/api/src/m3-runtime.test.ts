@@ -5,13 +5,18 @@ import type {
   AiProposalAttemptEvent,
   AiProposalView,
   MeResponse,
+  ModelProviderListResponse,
   ModelProviderView,
 } from '@yunshuo/contracts';
 import type { ChapterPlan } from '@yunshuo/domain';
 import { closeDb, jsonValue, sql } from '@yunshuo/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { computeCost } from './services/ai-service.js';
-import type { GenerationProvider } from './services/provider-service.js';
+import {
+  connectionFailureDetail,
+  redactSecret,
+  type GenerationProvider,
+} from './services/provider-service.js';
 
 const TEST_TITLE = 'M3 运行时测试章节';
 const TEST_NUMBER = 9902;
@@ -33,6 +38,9 @@ type StubAction =
     }
   | { kind: 'http'; status: number; message?: string }
   | { kind: 'partial'; content: string }
+  | { kind: 'non-json'; raw: string }
+  | { kind: 'upstream-error'; message: string; code: string }
+  | { kind: 'sse-upstream-error'; message: string; code: string }
   | { kind: 'empty' };
 
 interface StubRequest {
@@ -83,7 +91,57 @@ describe('生成成本计算', () => {
   });
 });
 
+describe('端点错误摘要脱敏与底层原因提取', () => {
+  it('脱敏替换所有出现，但不处理空密钥与过短密钥', () => {
+    expect(redactSecret('HTTP 500 · Bearer sk-secret-1 与 sk-secret-1 重复', 'sk-secret-1')).toBe(
+      'HTTP 500 · Bearer •••• 与 •••• 重复',
+    );
+    // 空密钥与 null 原样返回：没有可替换的对象时不能凭空打码
+    expect(redactSecret('HTTP 500 · no auth', null)).toBe('HTTP 500 · no auth');
+    expect(redactSecret('HTTP 500 · no auth', '')).toBe('HTTP 500 · no auth');
+    // 短于 4 字符的密钥原样保留：这是实现里写死的下限，界面上的密钥最短长度比它长，
+    // 真要放开这个下限必须同时改掉这条断言，否则等于默默取消脱敏。
+    expect(redactSecret('HTTP 500 · key=ab', 'ab')).toBe('HTTP 500 · key=ab');
+    expect(redactSecret('HTTP 500 · key=abc', 'abc')).toBe('HTTP 500 · key=abc');
+    expect(redactSecret('HTTP 500 · key=abcd', 'abcd')).toBe('HTTP 500 · key=••••');
+  });
+
+  it('连接失败摘要优先取 cause.code，并把长文本截到 200 字符加省略号', () => {
+    // Node 的 fetch 把底层错误挂在 cause 上，code 才是可诊断的原因码
+    const wrapped = Object.assign(new Error('fetch failed'), {
+      cause: Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:1'), {
+        code: 'ECONNREFUSED',
+      }),
+    });
+    expect(connectionFailureDetail(wrapped)).toBe('ECONNREFUSED');
+    // 没有 code 时退回 cause.message，再退回 error.message
+    const messageOnly = Object.assign(new Error('fetch failed'), {
+      cause: new Error('socket hang up'),
+    });
+    expect(connectionFailureDetail(messageOnly)).toBe('socket hang up');
+    expect(connectionFailureDetail(new Error('read ECONNRESET'))).toBe('read ECONNRESET');
+    // 非 Error 也要给出可读摘要，且三种截断口径一致
+    expect(connectionFailureDetail('plain string')).toBe('plain string');
+    expect(connectionFailureDetail('x'.repeat(300))).toBe(`${'x'.repeat(200)}…`);
+    expect(connectionFailureDetail(new Error('y'.repeat(300)))).toBe(`${'y'.repeat(200)}…`);
+    expect(connectionFailureDetail({})).toBe('[object Object]');
+  });
+});
+
 const suite = dbAvailable ? describe : describe.skip;
+
+interface ErrorResponseBody {
+  error: { code: string; message: string };
+}
+
+function expectError(
+  response: { status: number; body: ErrorResponseBody },
+  status: number,
+  code: string,
+): void {
+  expect(response.status).toBe(status);
+  expect(response.body.error.code).toBe(code);
+}
 
 suite('M3 持久化锁 / 重试 / 故障转移 / 成本', () => {
   let app: FastifyInstance;
@@ -93,6 +151,8 @@ suite('M3 持久化锁 / 重试 / 故障转移 / 成本', () => {
   let chapterId: string;
   let primaryId: string;
   let backupId: string;
+  // 用例中途建的服务商也要登记在这里：删行不会带走它的 create/delete 审计。
+  const tempProviderIds: string[] = [];
   let existingProviders: Array<{ id: string; is_enabled: boolean }> = [];
 
   const plans: Record<'p1' | 'p2', StubAction[]> = { p1: [], p2: [] };
@@ -175,6 +235,12 @@ suite('M3 持久化锁 / 重试 / 故障转移 / 成本', () => {
     await sql`DELETE FROM index_status WHERE chapter_id = ${id}`;
     await sql`DELETE FROM chapter_metadata WHERE chapter_id = ${id}`;
     await sql`DELETE FROM chapter_leases WHERE chapter_id = ${id}`;
+    // 草稿是 branch + revision 两张表；早先的清理没带它们，一旦有用例存过草稿就会漏行。
+    await sql`
+      DELETE FROM draft_revisions
+      WHERE branch_id IN (SELECT id FROM draft_branches WHERE chapter_id = ${id})
+    `;
+    await sql`DELETE FROM draft_branches WHERE chapter_id = ${id}`;
     await sql`DELETE FROM canon_versions WHERE chapter_id = ${id}`;
     await sql`DELETE FROM events WHERE aggregate_type = 'chapter' AND aggregate_id = ${id}`;
     await sql`DELETE FROM audit_log WHERE object_id = ${id} OR metadata->>'chapterId' = ${id}`;
@@ -219,12 +285,34 @@ suite('M3 持久化锁 / 重试 / 故障转移 / 成本', () => {
           return;
         }
 
+        // 200 但不是 SSE 流：一句走「解析不出 JSON」，一句走「JSON 里是上游错误」。
+        if (action.kind === 'non-json' || action.kind === 'upstream-error') {
+          response.writeHead(200, { 'content-type': 'application/json' });
+          response.end(
+            action.kind === 'non-json'
+              ? action.raw
+              : JSON.stringify({ error: { code: action.code, message: action.message } }),
+          );
+          return;
+        }
+
         response.writeHead(200, {
           'content-type': 'text/event-stream; charset=utf-8',
           'cache-control': 'no-cache',
         });
         if (action.kind === 'empty') {
           response.write('data: [DONE]\n\n');
+          response.end();
+          return;
+        }
+        // 真·流式中途报错：错误事件和正文事件混在同一条 SSE 里，走的是另一处判定分支。
+        if (action.kind === 'sse-upstream-error') {
+          response.write(
+            `data: ${JSON.stringify({ choices: [{ delta: { content: '前半段正文。' } }] })}\n\n`,
+          );
+          response.write(
+            `data: ${JSON.stringify({ error: { code: action.code, message: action.message } })}\n\n`,
+          );
           response.end();
           return;
         }
@@ -336,6 +424,7 @@ suite('M3 持久化锁 / 重试 / 故障转移 / 成本', () => {
     });
     expect(createdBackup.status).toBe(200);
     backupId = createdBackup.body.id;
+    tempProviderIds.push(primaryId, backupId);
 
     const locationRows = await sql<{ work_id: string; volume_id: string }[]>`
       SELECT wo.id AS work_id, v.id AS volume_id
@@ -378,9 +467,25 @@ suite('M3 持久化锁 / 重试 / 故障转移 / 成本', () => {
       WHERE action = 'auth.login'
         AND actor_id IN (SELECT id FROM users WHERE email LIKE '%@demo.local')
     `;
-    for (const id of [primaryId, backupId]) {
-      if (id) await sql`DELETE FROM model_providers WHERE id = ${id}`;
+    // 删 model_providers 行不会带走它们的 create/delete 审计：这些服务商建在演示工作区里，
+    // 不清就是每次全量运行给共享库留下永久增长、且指向已消失对象的审计。
+    const leftoverProviderAudits: string[] = [];
+    for (const id of tempProviderIds) {
+      await sql`DELETE FROM model_providers WHERE id = ${id}`;
+      await sql`
+        DELETE FROM audit_log
+        WHERE action IN ('model_provider.create', 'model_provider.delete')
+          AND object_id = ${id}
+      `;
+      const counted = await sql<{ n: string }[]>`
+        SELECT count(*)::text AS n FROM audit_log
+        WHERE action IN ('model_provider.create', 'model_provider.delete')
+          AND object_id = ${id}
+      `;
+      // 删完还数得到，说明清理的谓词没命中真实行（比如 object_id 根本不是服务商 id）。
+      leftoverProviderAudits.push(counted[0]!.n);
     }
+    // 先取值、最后断言：断言若放在这里失败，会跳过后面的服务商开关恢复和进程关闭。
     for (const provider of existingProviders) {
       await sql`
         UPDATE model_providers SET is_enabled = ${provider.is_enabled}
@@ -390,6 +495,7 @@ suite('M3 持久化锁 / 重试 / 故障转移 / 成本', () => {
     if (stub) await new Promise<void>((resolve) => stub.close(() => resolve()));
     if (app) await app.close();
     await closeDb();
+    expect(leftoverProviderAudits).toEqual(tempProviderIds.map(() => '0'));
   });
 
   it('同一服务商首次 500 后自动重试，并写入 token 成本', async () => {
@@ -439,6 +545,16 @@ suite('M3 持久化锁 / 重试 / 故障转移 / 成本', () => {
     const saved = history.body.find((item) => item.id === proposal.id);
     expect(saved?.attempts).toBe(2);
     expect(saved?.cost).toBe(0.006);
+
+    const generateAudit = await sql<{ actor_type: string; role: string; actor_id: string }[]>`
+      SELECT actor_type, role, actor_id FROM audit_log
+      WHERE action = 'ai.proposal.generate'
+        AND metadata->>'proposalId' = ${proposal.id}
+    `;
+    expect(generateAudit).toHaveLength(1);
+    expect(generateAudit[0]?.actor_type).toBe('human');
+    expect(generateAudit[0]?.role).toBe(owner.me.role);
+    expect(generateAudit[0]?.actor_id).toBe(owner.me.user.id);
   });
 
   it('服务商不支持 stream_options 时去掉该参数重试一次', async () => {
@@ -621,9 +737,9 @@ suite('M3 持久化锁 / 重试 / 故障转移 / 成本', () => {
     expect(requests.map((request) => request.provider)).toEqual(['p1']);
 
     const proposals = await sql<
-      { status: string; content: string; attempts: number; error_code: string | null }[]
+      { id: string; status: string; content: string; attempts: number; error_code: string | null }[]
     >`
-      SELECT status, content, attempts, error_code FROM ai_proposals
+      SELECT id, status, content, attempts, error_code FROM ai_proposals
       WHERE chapter_id = ${chapterId}
       ORDER BY created_at DESC, id DESC
       LIMIT 1
@@ -631,5 +747,302 @@ suite('M3 持久化锁 / 重试 / 故障转移 / 成本', () => {
     expect(proposals[0]?.status).toBe('failed');
     expect(proposals[0]?.content).toBe('他只写到一半，');
     expect(proposals[0]?.attempts).toBe(1);
+
+    const failedAudit = await sql<{ actor_type: string; result: string }[]>`
+      SELECT actor_type, result FROM audit_log
+      WHERE action = 'ai.proposal.generate'
+        AND metadata->>'proposalId' = ${proposals[0]!.id}
+    `;
+    expect(failedAudit).toHaveLength(1);
+    expect(failedAudit[0]?.result).toBe('failure');
+    expect(failedAudit[0]?.actor_type).toBe('human');
   });
+
+  it(
+    '加厚模式的草稿前置排在服务商检查之前；一个可用服务商都没有时不发起任何请求',
+    async () => {
+      async function trace() {
+        const rows = await sql<
+          { drafts: string; proposals: string; calls: string; locks: string; audits: string }[]
+        >`
+          SELECT
+            (SELECT count(*) FROM draft_revisions dr
+               JOIN draft_branches db ON db.id = dr.branch_id
+              WHERE db.chapter_id = ${chapterId})::text AS drafts,
+            (SELECT count(*) FROM ai_proposals WHERE chapter_id = ${chapterId})::text AS proposals,
+            (SELECT count(*) FROM model_calls WHERE chapter_id = ${chapterId})::text AS calls,
+            (SELECT count(*) FROM ai_generation_locks WHERE chapter_id = ${chapterId})::text AS locks,
+            (SELECT count(*) FROM audit_log
+              WHERE object_id = ${chapterId} OR metadata->>'chapterId' = ${chapterId})::text AS audits
+        `;
+        return rows[0]!;
+      }
+
+      async function propose(mode: 'continue' | 'expand') {
+        return call<ErrorResponseBody>('POST', `/api/chapters/${chapterId}/ai/proposals`, {
+          mode,
+          targetWords: 300,
+        });
+      }
+
+      async function setChatEnabled(ids: string[], isEnabled: boolean): Promise<void> {
+        // 夹具用 SQL 直改开关，不走 PATCH 端点：那会给共享库留下 model_provider.update 审计，
+        // 把残留对账和「这次拒绝不留痕迹」的计数一起搞脏。
+        for (const id of ids) {
+          await sql`UPDATE model_providers SET is_enabled = ${isEnabled} WHERE id = ${id}`;
+        }
+      }
+
+      setPlans({ p1: [{ kind: 'sse', content: '不应被调用。', promptTokens: 10, completionTokens: 5 }] });
+      // 前面 6 条用例已经在这同一章上生成过，基线不是 0；这一族只问「这次拒绝多留了什么」。
+      const start = await trace();
+      const plus = (from: Awaited<ReturnType<typeof trace>>, key: 'drafts' | 'proposals' | 'calls' | 'locks' | 'audits', n: number): string =>
+        String(Number(from[key]) + n);
+
+      // ① 加厚没有草稿：服务商此刻是启用的，所以这一句只可能来自草稿前置。
+      const noDraft = await propose('expand');
+      expect(noDraft.status).toBe(409);
+      expect(noDraft.body.error.code).toBe('NO_DRAFT_FOR_EXPAND');
+      expect(noDraft.body.error.message).toBe('加厚模式需要先保存一份草稿');
+      expect(await trace()).toEqual(start);
+
+      await setChatEnabled([primaryId, backupId], false);
+
+      // ② 同一个夹具状态换个 mode 就换一句答案，钉住「草稿前置 → 服务商装载」的先后。
+      const noProvider = await propose('continue');
+      expect(noProvider.status).toBe(409);
+      expect(noProvider.body.error.code).toBe('NO_MODEL_PROVIDER');
+      expect(noProvider.body.error.message).toContain('没有已启用的模型服务商');
+      const stillNoDraft = await propose('expand');
+      expect(stillNoDraft.body.error.code).toBe('NO_DRAFT_FOR_EXPAND');
+      expect(await trace()).toEqual(start);
+
+      // ③ 超长草稿：契约只管 min(1)、没有上限，所以 8001 字这一支从 HTTP 真能走到。
+      const longDraft = '铜'.repeat(8001);
+      const saved = await call<{ contentHash: string }>('PUT', `/api/chapters/${chapterId}/draft`, {
+        content: longDraft,
+      });
+      expect(saved.status).toBe(200);
+      const withDraft = await trace();
+      expect(withDraft).toEqual({ ...start, drafts: plus(start, 'drafts', 1) });
+
+      const tooLong = await propose('expand');
+      expect(tooLong.status).toBe(409);
+      expect(tooLong.body.error.code).toBe('DRAFT_TOO_LONG_FOR_EXPAND');
+      expect(tooLong.body.error.message).toContain('8000 字以内');
+
+      // 四次拒绝一个字节都不该多留：没建提案、没占锁、没花一次调用、没写一条审计，桩服务也没被请求。
+      expect(await trace()).toEqual(withDraft);
+      expect(requests).toHaveLength(0);
+
+      // ④ 正控制：把主服务商打开，同一条 continue 请求就走通——上一句 409 是开关造成的，不是夹具坏了。
+      await setChatEnabled([primaryId], true);
+      const beforeRun = await trace();
+      const ok = await generate();
+      expect(ok.status).toBe(200);
+      expect(ok.events.some((event) => event.event === 'done')).toBe(true);
+      expect(requests.map((request) => request.provider)).toEqual(['p1']);
+
+      // 走通的那一次只多一条提案、一次调用、一条审计，锁照旧释放。
+      const afterRun = await trace();
+      expect(afterRun).toEqual({
+        ...beforeRun,
+        proposals: plus(beforeRun, 'proposals', 1),
+        calls: plus(beforeRun, 'calls', 1),
+        audits: plus(beforeRun, 'audits', 1),
+      });
+    },
+  );
+
+  it(
+    '有调用记录的服务商删不掉、没有密钥的服务商复用不了，两句都在归属检查之后',
+    async () => {
+      const ghost = randomUUID();
+      const callsOfPrimary = await sql<{ count: string }[]>`
+        SELECT count(*)::text AS count FROM model_calls WHERE provider_id = ${primaryId}
+      `;
+      expect(Number(callsOfPrimary[0]!.count)).toBeGreaterThan(0);
+
+      const providerCount = async (): Promise<string> =>
+        (await sql<{ count: string }[]>`
+          SELECT count(*)::text AS count FROM model_providers
+          WHERE workspace_id = ${owner.me.workspace.id}
+        `)[0]!.count;
+      const deleteAudits = async (id: string): Promise<string> =>
+        (await sql<{ count: string }[]>`
+          SELECT count(*)::text AS count FROM audit_log
+          WHERE action = 'model_provider.delete' AND object_id = ${id}
+        `)[0]!.count;
+
+      // ① 幽灵 id 先撞归属闸，压根走不到「有没有调用记录」那一步。
+      const missing = await call<ErrorResponseBody>('DELETE', `/api/model-providers/${ghost}`);
+      expectError(missing, 404, 'PROVIDER_NOT_FOUND');
+
+      // ② 真删不掉的才是这一句：FK 是 RESTRICT，摘掉守卫就变成 500 的外键崩溃，
+      //    所以这条守的是「界面拿到能读的 409 + 请改为停用」，不是权限洞。
+      const inUse = await call<ErrorResponseBody>('DELETE', `/api/model-providers/${primaryId}`);
+      expectError(inUse, 409, 'PROVIDER_IN_USE');
+      expect(inUse.body.error.message).toBe('该服务商已有调用记录，不能删除；请改为停用');
+      const kept = await call<ModelProviderListResponse>('GET', '/api/model-providers');
+      expect(kept.body.providers.some((provider) => provider.id === primaryId)).toBe(true);
+      expect(await deleteAudits(primaryId)).toBe('0');
+
+      // ③ 复用密钥：源服务商存在但没存过密钥，才轮到 PROVIDER_KEY_MISSING。
+      const noKey = await call<ModelProviderView>('POST', '/api/model-providers', {
+        name: 'M3 无密钥服务商',
+        baseUrl: `http://127.0.0.1:${stubPort}/p1/v1`,
+        model: 'stub-no-key',
+        isEnabled: false,
+        priority: 50,
+      });
+      expect(noKey.status).toBe(200);
+      expect(noKey.body.hasKey).toBe(false);
+      tempProviderIds.push(noKey.body.id);
+
+      const beforeReuse = await providerCount();
+      expectError(
+        await call<ErrorResponseBody>('POST', '/api/model-providers', {
+          name: 'M3 复用空密钥服务商',
+          baseUrl: `http://127.0.0.1:${stubPort}/p1/v1`,
+          model: 'stub-reuse',
+          reuseKeyFromProviderId: noKey.body.id,
+          isEnabled: false,
+          priority: 51,
+        }),
+        400,
+        'PROVIDER_KEY_MISSING',
+      );
+      expectError(
+        await call<ErrorResponseBody>('POST', '/api/model-providers', {
+          name: 'M3 复用不存在服务商',
+          baseUrl: `http://127.0.0.1:${stubPort}/p1/v1`,
+          model: 'stub-reuse',
+          reuseKeyFromProviderId: ghost,
+          isEnabled: false,
+          priority: 51,
+        }),
+        404,
+        'PROVIDER_NOT_FOUND',
+      );
+      // 两次被拒都在事务里回滚：既不落服务商行，也不留 create 审计。
+      expect(await providerCount()).toBe(beforeReuse);
+
+      // ④ 正控制：没有调用记录的服务商真能删掉，并且留下一条归因到人、带上被删名字的审计。
+      const deleted = await call<{ ok: boolean }>('DELETE', `/api/model-providers/${noKey.body.id}`);
+      expect(deleted.status).toBe(200);
+      // 删成功要看得见：数量比复用尝试前少 1，且列表里查不到这一行。
+      expect(Number(await providerCount())).toBe(Number(beforeReuse) - 1);
+      const afterDelete = await call<ModelProviderListResponse>('GET', '/api/model-providers');
+      expect(afterDelete.body.providers.some((provider) => provider.id === noKey.body.id)).toBe(false);
+      expect(await deleteAudits(noKey.body.id)).toBe('1');
+      const audit = await sql<{ actor_type: string; result: string; metadata: Record<string, unknown> }[]>`
+        SELECT actor_type, result, metadata FROM audit_log
+        WHERE action = 'model_provider.delete' AND object_id = ${noKey.body.id}
+      `;
+      expect(audit[0]?.actor_type).toBe('human');
+      expect(audit[0]?.result).toBe('success');
+      expect(audit[0]?.metadata?.name).toBe('M3 无密钥服务商');
+    },
+  );
+
+  it(
+    '坏响应族按成因分四个码：只有空正文原地重试，JSON 与 SSE 两条上游错误都先脱敏',
+    async () => {
+      // 备用服务商显式关掉：这一族问的是「同一份坏响应被怎样归因」，不是故障转移。
+      // 上一条用例恰好也把它关了，但那是用例顺序的巧合，不能当夹具依赖。
+      await sql`UPDATE model_providers SET is_enabled = false WHERE id = ${backupId}`;
+
+      async function trace() {
+        const rows = await sql<{ proposals: string; calls: string; locks: string; drafts: string }[]>`
+          SELECT
+            (SELECT count(*) FROM ai_proposals WHERE chapter_id = ${chapterId})::text AS proposals,
+            (SELECT count(*) FROM model_calls WHERE chapter_id = ${chapterId})::text AS calls,
+            (SELECT count(*) FROM ai_generation_locks WHERE chapter_id = ${chapterId})::text AS locks,
+            (SELECT count(*) FROM draft_revisions dr
+               JOIN draft_branches db ON db.id = dr.branch_id
+              WHERE db.chapter_id = ${chapterId})::text AS drafts
+        `;
+        return rows[0]!;
+      }
+
+      interface Failure {
+        code: string;
+        message: string;
+      }
+
+      async function failWith(plan: StubAction, attempts: number): Promise<Failure> {
+        const before = await trace();
+        setPlans({ p1: [plan] });
+        const result = await generate();
+        expect(result.status).toBe(200);
+        expect(result.proposal).toBeNull();
+        const errorEvent = result.events.find((event) => event.event === 'error');
+        if (!errorEvent) throw new Error('坏响应没有发出 error 事件');
+        const failure = errorEvent.data as Failure;
+        expect(requests.map((request) => request.provider)).toEqual(
+          Array.from({ length: attempts }, () => 'p1'),
+        );
+        // 一次失败生成＝一条提案行；调用记录按实际尝试次数；锁释放、草稿不动。
+        const after = await trace();
+        expect(after).toEqual({
+          ...before,
+          proposals: String(Number(before.proposals) + 1),
+          calls: String(Number(before.calls) + attempts),
+        });
+        const row = await sql<{ status: string; error_code: string | null; attempts: number }[]>`
+          SELECT status, error_code, attempts FROM ai_proposals
+          WHERE chapter_id = ${chapterId}
+          ORDER BY created_at DESC, id DESC
+          LIMIT 1
+        `;
+        // 界面读到的码与落库归因必须是同一个字面量，否则报表与提示各说各话。
+        expect(row[0]).toEqual({ status: 'failed', error_code: failure.code, attempts });
+        return failure;
+      }
+
+      const empty = await failWith({ kind: 'empty' }, 2);
+      // 重试过的那一次，界面文案要带上尝试次数——这是「为什么等了这么久」唯一的凭据。
+      expect(empty).toEqual({
+        code: 'EMPTY_OUTPUT',
+        message: '已尝试 2 次：模型返回空正文，未生成提案',
+      });
+
+      const tooLarge = await failWith(
+        { kind: 'sse', content: '铜'.repeat(60_001), promptTokens: 10, completionTokens: 5 },
+        1,
+      );
+      expect(tooLarge).toEqual({
+        code: 'OUTPUT_TOO_LARGE',
+        message: '模型输出超过 60000 字上限，已中止；提案未完成。',
+      });
+
+      const badBody = await failWith({ kind: 'non-json', raw: '这一句不是 JSON' }, 1);
+      expect(badBody).toEqual({
+        code: 'AI_BAD_RESPONSE',
+        message: '模型服务返回的不是 JSON 或 SSE 流',
+      });
+
+      const upstream = await failWith(
+        { kind: 'upstream-error', message: '内容策略拒绝：key-one 无效', code: 'content_policy' },
+        1,
+      );
+      expect(upstream.code).toBe('AI_UPSTREAM_ERROR');
+      expect(upstream.message).toContain('内容策略拒绝');
+      expect(upstream.message).toContain('••••');
+      expect(upstream.message).not.toContain('key-one');
+
+      // 同一条上游错误换成 SSE 里的一条 data 事件，走的是另一处判定分支：
+      // 只有两处都断言，删掉任意一处的脱敏才不会悄悄漏过去。
+      // 密钥必须是这一条真正被调用的 p1 的 key-one：备用服务商已关掉，换成 key-two
+      // 脱敏函数根本没有可替换的对象，那句 not.toContain 就成了永远成立的假阳性。
+      const upstreamInStream = await failWith(
+        { kind: 'sse-upstream-error', message: '内容策略拒绝：key-one 无效', code: 'content_policy' },
+        1,
+      );
+      expect(upstreamInStream.code).toBe('AI_UPSTREAM_ERROR');
+      expect(upstreamInStream.message).toContain('内容策略拒绝');
+      expect(upstreamInStream.message).toContain('••••');
+      expect(upstreamInStream.message).not.toContain('key-one');
+    },
+  );
 });

@@ -1,0 +1,289 @@
+{
+  "description": "云说 M6 账本检索评估集：11 条依据演示正典（旧城雨夜 / 封印之前 / 封印之后 / 追兵入巷）登记的设定·角色·伏笔条目，配 15 条正例查询（关键词型、别名型、语义改写型）与 5 条无答案对照（2 条域外 + 3 条近域）。条目名统一带“评估·”前缀，脚本默认在跑完后删除自己播种的条目与投影。",
+  "source": "查询集与标准答案由本仓库演示正典人工标注，非模型生成，也不来自任何真实作品；只能证明账本投影与检索管线的相对行为，不能代表生产语料上的检索质量。",
+  "k": 8,
+  "namePrefix": "评估·",
+  "entries": [
+    {
+      "kind": "setting",
+      "workScoped": true,
+      "name": "评估·七枚铜钉封印阵",
+      "aliases": ["钉阵", "七钉", "封印阵缺钉"],
+      "summary": "封印阵需要七枚铜钉，一枚占一个坑；第七枚的位置空着，代价由人来填。",
+      "sourceChapter": 3,
+      "payload": {
+        "category": "rule",
+        "verification": "verified",
+        "tags": ["封印", "铜钉", "代价", "七枚"],
+        "details": "阵由七枚铜钉组成，门框左下角、离地面最浅的那一处是第七枚的位置。七年前少钉一枚，阵靠习惯撑到现在，像少一条腿的桌子。林默掌心只有五枚，第六枚在别人手里，他自己就是第七枚。"
+      }
+    },
+    {
+      "kind": "setting",
+      "workScoped": false,
+      "name": "评估·更鼓时限",
+      "aliases": ["更鼓", "下一声更鼓"],
+      "summary": "封印必须在下一声更鼓之前完成；鼓声过后街角的雨水会倒流回檐下。",
+      "sourceChapter": 1,
+      "payload": {
+        "category": "rule",
+        "verification": "verified",
+        "tags": ["时限", "更鼓", "封印"],
+        "details": "第1章追兵的马蹄声已经传到巷口，林默知道封印必须在下一声更鼓之前完成。更鼓响起时他扶住门框，旧城雨夜的封印才算成，随后门楣旧漆裂开，暗金色纹路爬满整条街。"
+      }
+    },
+    {
+      "kind": "setting",
+      "workScoped": true,
+      "name": "评估·巡夜服",
+      "aliases": ["夜巡服", "烧焦的巡夜服"],
+      "summary": "追兵与巷口来人所穿的制服，七年前那场大火里烧焦过；衣裳可以换，可以再穿一遍。",
+      "sourceChapter": 2,
+      "payload": {
+        "category": "faction",
+        "verification": "unverified",
+        "tags": ["巡夜", "追兵", "七年前的火"],
+        "details": "第2章雨幕里站着的人穿着七年前那场大火里烧焦的巡夜服。第4章台阶下三个穿巡夜服的人站在石阶下面等门开，中间那人腰间带着铁尺。第3章林默明白那场火没有烧死任何人，巡夜服只是件衣裳。"
+      }
+    },
+    {
+      "kind": "setting",
+      "workScoped": true,
+      "name": "评估·门缝里的深井凉气",
+      "aliases": ["深井底下的凉", "门缝的灰光"],
+      "summary": "门缝透出的气息不是热的，是深井底下的凉；缝隙里的光是说不上来的灰。",
+      "sourceChapter": 4,
+      "payload": {
+        "category": "world",
+        "verification": "unverified",
+        "tags": ["门后", "凉气", "灰烬"],
+        "details": "第一根门闩崩开后，缝隙里透出的气息像深井底下的凉，贴着地皮漫出来舔过脚踝。第三根门闩断时，门缝里的光不是白也不是红，是一种说不上来的灰，像烧了很多年的灰烬自己亮了起来。"
+      }
+    },
+    {
+      "kind": "character",
+      "name": "评估·林默",
+      "aliases": ["封印的人"],
+      "summary": "旧城封印的执行者，掌心带着五枚铜钉，用自己的血催符，准备把自己当作第七枚。",
+      "sourceChapter": 1,
+      "payload": {
+        "role": "主角，封印者",
+        "faction": "独自守门",
+        "appearance": "指尖有凝住的血线，掌根扎着木刺，第4章手背多出从掌根到指尖的一道灰痕",
+        "personality": "话少，不肯退让，先把代价想一遍再动手",
+        "goals": "在更鼓前封住门，并弄清第六枚铜钉在谁手里",
+        "abilities": "画封印符，咬破指尖以血催符，把铜钉一枚枚钉进门槛",
+        "speechStyle": "短句，习惯把判断说成事实",
+        "relationships": [
+          { "name": "评估·师父", "relation": "师徒", "notes": "七年前少钉一枚的那个人" },
+          { "name": "评估·门后之物", "relation": "封印对象", "notes": "隔着门板听他呼吸" }
+        ],
+        "states": [
+          {
+            "asOfChapter": 1,
+            "life": "alive",
+            "location": "旧城街口的门洞",
+            "knowledge": "知道封印必须在下一声更鼓之前完成，也知道追兵不会就此放弃",
+            "possessions": "最后一张封印符与五枚铜钉"
+          },
+          {
+            "asOfChapter": 2,
+            "life": "alive",
+            "location": "门洞里，封口只剩半寸",
+            "knowledge": "认出巷口来的人穿着七年前大火里烧焦的巡夜服，那枚铜钉在对方指间",
+            "possessions": "齿间咬着的铜钉与怀里的第二道符"
+          },
+          {
+            "asOfChapter": 3,
+            "life": "alive",
+            "location": "门框左侧，左手按着门框",
+            "knowledge": "明白七年前的火没有烧死任何人，也明白自己就是第七枚",
+            "possessions": "掌心五枚带裂纹的铜钉"
+          },
+          {
+            "asOfChapter": 4,
+            "life": "alive",
+            "location": "门内，背靠裂开的门板",
+            "knowledge": "确认台阶下三人在等门开而不是抓他，确认巷口走来的人是师父，也知道门后不止一个",
+            "possessions": "五枚铜钉与断门闩上沾的符纸灰",
+            "relationshipChanges": "当场认出抛钉的手背灰痕，说出“是你”"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "character",
+      "name": "评估·师父",
+      "aliases": ["巷口的人", "抛钉的人", "那枚铜钉的主人"],
+      "summary": "七年前少钉一枚的上一代封印者，第4章以林默师父的身份露面，手里握着第六枚铜钉。",
+      "sourceChapter": 4,
+      "payload": {
+        "role": "上一代封印者，林默的师父",
+        "faction": "等门开的人",
+        "appearance": "手背有从掌根到指尖的一道灰痕，抛钉时裂纹朝上",
+        "personality": "耐心到像在验收",
+        "goals": "让林默自己把门打开，使封印散尽",
+        "abilities": "持有第六枚铜钉，能在雨中来去",
+        "speechStyle": "反问与陈述交替，声音隔了七年哑了却还是那个调子",
+        "relationships": [
+          { "name": "评估·林默", "relation": "师徒", "notes": "要徒弟替他填当年留下的窟窿" },
+          { "name": "评估·三名追兵", "relation": "旧同事", "notes": "他们也在等这个人露面" }
+        ],
+        "states": [
+          {
+            "asOfChapter": 2,
+            "life": "unknown",
+            "location": "巷口雨里，没有提灯",
+            "knowledge": "知道林默缺一枚钉，也知道门后的撞击会停",
+            "possessions": "那枚本该在林默怀里的铜钉"
+          },
+          {
+            "asOfChapter": 4,
+            "life": "alive",
+            "location": "从巷口走向月光能照到的地方",
+            "knowledge": "知道自己抛钉的手势与手背灰痕已被林默认出",
+            "possessions": "第六枚铜钉，最后掉在石板上",
+            "relationshipChanges": "以师父身份现身"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "character",
+      "name": "评估·门后之物",
+      "aliases": ["门后的东西", "贴门板的呼吸"],
+      "summary": "被封印在门后的存在，七年里又找了一个替身；第4章门后的呼吸声从一个变成两个。",
+      "sourceChapter": 3,
+      "payload": {
+        "role": "被封印者",
+        "faction": "门后",
+        "appearance": "没有形状，只有贴着门板的呼吸和深井般的凉气",
+        "personality": "不急，安静比撞击更难挨",
+        "goals": "等门开，等封印散尽",
+        "abilities": "借替身留在门后，能贴住木锁发出脆响",
+        "speechStyle": "不说话，只出声",
+        "relationships": [
+          { "name": "评估·林默", "relation": "被封印", "notes": "贴着门板听他说话" }
+        ],
+        "states": [
+          {
+            "asOfChapter": 2,
+            "life": "unknown",
+            "location": "门后",
+            "knowledge": "知道门外有人在补封印",
+            "possessions": "撞击门板的力气"
+          },
+          {
+            "asOfChapter": 4,
+            "life": "unknown",
+            "location": "门板两侧，一个贴着门板，一个退到更深处",
+            "knowledge": "退进去的那个是谁尚未查明",
+            "possessions": "两个呼吸声"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "character",
+      "name": "评估·三名追兵",
+      "aliases": ["石阶下的人", "等门开的三个人"],
+      "summary": "停在门外不推门的三个巡夜人，等的是林默把门打开，而不是抓他。",
+      "sourceChapter": 4,
+      "payload": {
+        "role": "巡夜人，追兵",
+        "faction": "巡夜司",
+        "appearance": "檐帽滴水，中间那人按着腰间的铁尺，指节发白",
+        "personality": "耐心，围而不攻",
+        "goals": "等封印散干净，收拾火没烧干净的东西",
+        "abilities": "叩门两下传话，围住巷口却不上台阶",
+        "speechStyle": "隔着湿透的衣领说话，语气平得像在说与己无关的事",
+        "relationships": [
+          { "name": "评估·师父", "relation": "等待其露面", "notes": "三人同时转身面向巷口" }
+        ],
+        "states": [
+          {
+            "asOfChapter": 1,
+            "life": "alive",
+            "location": "巷口，撞开第一道木栅",
+            "knowledge": "知道封印只差最后一角",
+            "possessions": "马蹄声与木栅"
+          },
+          {
+            "asOfChapter": 4,
+            "life": "alive",
+            "location": "石阶下面，谁也没上前推门",
+            "knowledge": "承认等了七年，承认门后不止一个，也知道第六枚钉在谁手里",
+            "possessions": "铁尺与三句话"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "foreshadowing",
+      "name": "评估·第六枚铜钉的下落",
+      "aliases": ["第六枚钉"],
+      "summary": "第六枚铜钉不在林默手里，第3章抛出“在谁手里”，第4章落到走来的人手上。",
+      "sourceChapter": 3,
+      "payload": {
+        "seedChapter": 3,
+        "payoffChapterMin": 4,
+        "payoffChapterMax": 6,
+        "importance": "high",
+        "state": "reinforced",
+        "note": "第3章掌心五枚不够，第六枚在别人手里，封印阵缺的正是第六枚的位置；第4章台阶下的人回答“在你该知道的人手里”，铜钉最后从那人手里掉在石板上。"
+      }
+    },
+    {
+      "kind": "foreshadowing",
+      "name": "评估·手背的灰痕",
+      "aliases": ["掌根到指尖的灰痕"],
+      "summary": "从掌根到指尖的一道灰痕，把巷口抛钉的人与林默认出的那张脸对上。",
+      "sourceChapter": 4,
+      "payload": {
+        "seedChapter": 4,
+        "payoffChapterMin": 4,
+        "payoffChapterMax": 7,
+        "importance": "high",
+        "state": "planted",
+        "note": "第4章断门闩上的符纸灰沾指后痒意上行，掌心出现浅灰痕；回想那人抛钉时手背也有同样一道，林默说出“是你”。"
+      }
+    },
+    {
+      "kind": "foreshadowing",
+      "name": "评估·七年前的那场火",
+      "aliases": ["大火"],
+      "summary": "七年前的大火没有烧死任何人，烧焦的巡夜服与少钉一枚的代价指向同一夜。",
+      "sourceChapter": 2,
+      "payload": {
+        "seedChapter": 2,
+        "payoffChapterMin": 3,
+        "payoffChapterMax": 6,
+        "importance": "medium",
+        "state": "reinforced",
+        "note": "第2章雨幕里那人穿着七年前大火里烧焦的巡夜服；第3章林默明白火没有烧死任何人，衣裳可以再穿一遍；第4章追兵说“火没烧干净的东西，总得有人收拾”。"
+      }
+    }
+  ],
+  "queries": [
+    { "q": "铜钉 七枚 阵 缺一枚", "expectEntry": "评估·七枚铜钉封印阵", "type": "关键词", "note": "条目名与标签的直接重合" },
+    { "q": "更鼓 之前 必须 完成", "expectEntry": "评估·更鼓时限", "type": "关键词", "note": "摘要原句切词" },
+    { "q": "烧焦 衣裳 大火 制服", "expectEntry": "评估·巡夜服", "type": "关键词", "note": "别名与摘要混合" },
+    { "q": "深井 凉 门缝 灰光", "expectEntry": "评估·门缝里的深井凉气", "type": "关键词", "note": "设定详情里的两处意象" },
+    { "q": "林默 掌根 木刺 血", "expectEntry": "评估·林默", "type": "关键词", "note": "外貌与状态字段" },
+    { "q": "师父 抛钉 第六枚", "expectEntry": "评估·师父", "type": "关键词", "note": "别名“抛钉的人”与第4章状态" },
+    { "q": "门后 呼吸 两个 替身", "expectEntry": "评估·门后之物", "type": "关键词", "note": "摘要与第4章状态" },
+    { "q": "台阶下 三个人 不推门 铁尺", "expectEntry": "评估·三名追兵", "type": "关键词", "note": "能力字段与来源章节" },
+    { "q": "第六枚 钉 在谁手里", "expectEntry": "评估·第六枚铜钉的下落", "type": "关键词", "note": "伏笔说明原文" },
+    { "q": "手背 灰痕 认出", "expectEntry": "评估·手背的灰痕", "type": "关键词", "note": "别名加动作" },
+    { "q": "七年前 火 没烧死", "expectEntry": "评估·七年前的那场火", "type": "关键词", "note": "跨三章的伏笔说明" },
+    { "q": "谁替谁填上最后一处缺口", "expectEntry": "评估·七枚铜钉封印阵", "type": "语义改写", "note": "不含条目原词，考验向量通道" },
+    { "q": "夜里报时的鼓点给封印划了一条线", "expectEntry": "评估·更鼓时限", "type": "语义改写", "note": "改写幅度大，允许落空" },
+    { "q": "等门开的三个人", "expectEntry": "评估·三名追兵", "type": "别名", "note": "条目别名整串" },
+    { "q": "那枚铜钉的主人", "expectEntry": "评估·师父", "type": "别名", "note": "条目别名整串" },
+    { "q": "Python 异步 请求 性能", "expectEntry": null, "type": "域外对照", "note": "与作品无关" },
+    { "q": "红烧排骨 冰糖 上色", "expectEntry": null, "type": "域外对照", "note": "与作品无关" },
+    { "q": "雨 什么时候 停", "expectEntry": null, "type": "近域对照", "note": "正文写过“雨停在子时”，但账本没有天气条目" },
+    { "q": "林默 的 母亲", "expectEntry": null, "type": "近域对照", "note": "人物域内的未登记对象" },
+    { "q": "门槛 上 刻 的 字", "expectEntry": null, "type": "近域对照", "note": "正文有门槛但账本未登记刻字" }
+  ]
+}

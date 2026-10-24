@@ -18,6 +18,9 @@ import { badRequest, conflict, forbidden, notFound } from '../errors.js';
 import { iso } from '../views.js';
 
 export const MIN_GENERATION_COMPLETION_TOKENS = 128;
+// 占用生成预算的用途：章节正文提案与账本建议都是付费的大模型生成调用。
+export const GENERATION_PURPOSES = ['chapter_proposal', 'ledger_suggestion'] as const;
+export type GenerationPurpose = (typeof GENERATION_PURPOSES)[number];
 const STALE_CALL_MINUTES = 15;
 const UNKNOWN_CALL_LIMIT = 50;
 
@@ -81,8 +84,10 @@ export interface GenerationCallReservationInput {
   };
   promptTokensEstimate: number;
   requestedMaxTokens: number;
-  chapterId: string;
-  proposalId: string;
+  chapterId: string | null;
+  proposalId: string | null;
+  suggestionId: string | null;
+  purpose: GenerationPurpose;
   jobId: string | null;
   actorId: string;
   attemptNo: number;
@@ -239,7 +244,7 @@ async function expireStaleReservations(exec: Executor, workspaceId: string): Pro
     UPDATE model_calls SET
       status = 'failed',
       error_code = 'CALL_STALE',
-      error_message = ${`调用超过 ${STALE_CALL_MINUTES} 分钟未完成，预留已释放；实际费用未知`},
+      error_message = ${`调用超过 ${STALE_CALL_MINUTES} 分钟未完成，已标记为失效并释放预留；实际费用未知`},
       reserved_cost = NULL,
       reserved_currency = NULL,
       completed_at = now()
@@ -263,6 +268,9 @@ async function loadBudgetUsage(
 ): Promise<BudgetUsageInternal> {
   const budgetRow = await loadBudgetRow(exec, workspaceId);
   const budget = mapBudget(budgetRow);
+  // 过期预留的清算与预算是否配置无关：否则未设预算的工作区里，进程中断留下的
+  // `streaming` 调用会永远显示成在途。
+  await expireStaleReservations(exec, workspaceId);
   if (budget.monthlyLimit === null) {
     return {
       view: {
@@ -282,13 +290,12 @@ async function loadBudgetUsage(
     };
   }
 
-  await expireStaleReservations(exec, workspaceId);
   const currency = budget.currency;
   const spentRows = await exec<{ spent: string | null }[]>`
     SELECT COALESCE(SUM(cost), 0)::text AS spent
     FROM model_calls
     WHERE workspace_id = ${workspaceId}
-      AND purpose = 'chapter_proposal'
+      AND purpose IN ${sql(GENERATION_PURPOSES)}
       AND cost IS NOT NULL
       AND cost_currency = ${currency}
       AND created_at >= ${range.start}
@@ -298,7 +305,7 @@ async function loadBudgetUsage(
     SELECT COALESCE(SUM(reserved_cost), 0)::text AS reserved
     FROM model_calls
     WHERE workspace_id = ${workspaceId}
-      AND purpose = 'chapter_proposal'
+      AND purpose IN ${sql(GENERATION_PURPOSES)}
       AND reserved_cost IS NOT NULL
       AND reserved_currency = ${currency}
       AND status = 'streaming'
@@ -307,7 +314,7 @@ async function loadBudgetUsage(
     SELECT count(*)::int AS count
     FROM model_calls
     WHERE workspace_id = ${workspaceId}
-      AND purpose = 'chapter_proposal'
+      AND purpose IN ${sql(GENERATION_PURPOSES)}
       AND cost IS NULL
       AND reserved_cost IS NULL
       AND status <> 'streaming'
@@ -320,7 +327,7 @@ async function loadBudgetUsage(
     SELECT count(*)::int AS count
     FROM model_calls
     WHERE workspace_id = ${workspaceId}
-      AND purpose = 'chapter_proposal'
+      AND purpose IN ${sql(GENERATION_PURPOSES)}
       AND status <> 'blocked'
       AND cost_currency IS NOT NULL
       AND cost_currency <> ${currency}
@@ -393,7 +400,7 @@ export async function updateWorkspaceBudget(
         SELECT count(*)::int AS count
         FROM model_calls
         WHERE workspace_id = ${auth.workspace.id}
-          AND purpose = 'chapter_proposal'
+          AND purpose IN ${sql(GENERATION_PURPOSES)}
           AND status = 'streaming'
           AND reserved_cost IS NOT NULL
           AND reserved_currency IS NOT NULL
@@ -531,16 +538,19 @@ export async function reserveGenerationCall(
       FOR UPDATE
     `;
     const budgetRow = budgetRows[0];
+    // 先清算过期预留，再做任何提前返回：未配置预算的工作区同样不能让中断留下的
+    // `streaming` 行永远挂在账上。
+    await expireStaleReservations(tx, input.workspaceId);
     if (!budgetRow) {
       await tx`
         INSERT INTO model_calls (
           id, workspace_id, provider_id, chapter_id, job_id, model, status,
-          actor_id, purpose, proposal_id, attempt_no
+          actor_id, purpose, proposal_id, suggestion_id, attempt_no
         )
         VALUES (
           ${input.callId}, ${input.workspaceId}, ${input.provider.id}, ${input.chapterId},
-          ${input.jobId}, ${input.model}, 'streaming', ${input.actorId}, 'chapter_proposal',
-          ${input.proposalId}, ${input.attemptNo}
+          ${input.jobId}, ${input.model}, 'streaming', ${input.actorId}, ${input.purpose},
+          ${input.proposalId}, ${input.suggestionId}, ${input.attemptNo}
         )
       `;
       return { ok: true as const, maxTokens: input.requestedMaxTokens, reservedCost: null };
@@ -565,13 +575,12 @@ export async function reserveGenerationCall(
       };
     }
 
-    await expireStaleReservations(tx, input.workspaceId);
     const range = currentMonthRange();
     const spentRows = await tx<{ spent: string | null }[]>`
       SELECT COALESCE(SUM(cost), 0)::text AS spent
       FROM model_calls
       WHERE workspace_id = ${input.workspaceId}
-        AND purpose = 'chapter_proposal'
+        AND purpose IN ${sql(GENERATION_PURPOSES)}
         AND cost IS NOT NULL
         AND cost_currency = ${currency}
         AND created_at >= ${range.start}
@@ -581,7 +590,7 @@ export async function reserveGenerationCall(
       SELECT COALESCE(SUM(reserved_cost), 0)::text AS reserved
       FROM model_calls
       WHERE workspace_id = ${input.workspaceId}
-        AND purpose = 'chapter_proposal'
+        AND purpose IN ${sql(GENERATION_PURPOSES)}
         AND reserved_cost IS NOT NULL
         AND reserved_currency = ${currency}
         AND status = 'streaming'
@@ -628,13 +637,14 @@ export async function reserveGenerationCall(
     await tx`
       INSERT INTO model_calls (
         id, workspace_id, provider_id, chapter_id, job_id, model, status,
-        actor_id, purpose, proposal_id, attempt_no,
+        actor_id, purpose, proposal_id, suggestion_id, attempt_no,
         reserved_cost, reserved_currency
       )
       VALUES (
         ${input.callId}, ${input.workspaceId}, ${input.provider.id}, ${input.chapterId},
-        ${input.jobId}, ${input.model}, 'streaming', ${input.actorId}, 'chapter_proposal',
-        ${input.proposalId}, ${input.attemptNo}, ${reservedCost}, ${currency}
+        ${input.jobId}, ${input.model}, 'streaming', ${input.actorId}, ${input.purpose},
+        ${input.proposalId}, ${input.suggestionId}, ${input.attemptNo},
+        ${reservedCost}, ${currency}
       )
     `;
     return { ok: true as const, maxTokens, reservedCost };
@@ -645,6 +655,8 @@ function purposeLabel(purpose: string | null): string {
   switch (purpose) {
     case 'chapter_proposal':
       return '章节生成';
+    case 'ledger_suggestion':
+      return '账本建议';
     case 'embedding':
       return '索引嵌入';
     case 'embedding_query':

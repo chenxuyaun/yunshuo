@@ -185,6 +185,10 @@ if (mock) {
 }
 
 const { buildServer } = mock ? await import('./server.js') : { buildServer: null };
+// 这两个常量只能晚 import。`oidc-service.js` 顶层就 import 了 `../env.js`，而 `env.ts` 在模块
+// 求值的那一刻读 OIDC_*；写成静态 import 会把读取提前到上面那段赋值之前，`env.oidc.enabled`
+// 变成 false，整族用例一起红在「404 ≠ 302」这种和属性毫无关系的文案上。
+const { OIDC_STATE_COOKIE, OIDC_STATE_COOKIE_PATH } = await import('./services/oidc-service.js');
 const suite = dbAvailable && mock && buildServer ? describe : describe.skip;
 const RUN_ID = randomUUID().slice(0, 8);
 
@@ -192,6 +196,49 @@ interface CallbackResult {
   status: number;
   location: string | null;
   sessionCookie: string | null;
+  entries: string[];
+}
+
+interface SetCookieParts {
+  name: string;
+  /** 原始（仍带 URL 编码）的值段，不含任何属性。 */
+  value: string;
+  /** 属性按字典序排好，便于整组逐字比对。 */
+  attributes: string[];
+}
+
+/**
+ * `Set-Cookie` 的每一条都是一整串属性，而既有 `cookieFrom` 取的是 `split(';')[0]`：
+ * 名字与值读得到，属性整段被丢掉。§三十五 记下这是启用链上的一处空白，下面三个用例
+ * 要钉的正是被丢掉那一段，所以另开一个保留属性的解析，不动 `cookieFrom`
+ * （其余用例继续拿 `name=value` 当请求头发回去，那是它们要的形状）。
+ */
+function setCookieEntries(headers: Record<string, unknown>): string[] {
+  const raw = headers['set-cookie'];
+  const values = Array.isArray(raw) ? raw : typeof raw === 'string' ? [raw] : [];
+  return values.map((entry) => String(entry));
+}
+
+function readSetCookie(entry: string): SetCookieParts {
+  const [pair, ...attributes] = entry.split(';');
+  const separator = pair!.indexOf('=');
+  return {
+    name: pair!.slice(0, separator),
+    value: pair!.slice(separator + 1),
+    attributes: attributes.map((attribute) => attribute.trim()).sort(),
+  };
+}
+
+/** 剥掉签名取载荷：签名验不验得过另有一句断言，这里只要点号左边那段 JSON。 */
+function signedPayload(value: string): string {
+  const decoded = decodeURIComponent(value);
+  const separator = decoded.lastIndexOf('.');
+  // 没有签名段就先把话说清楚：否则下面 JSON.parse 会红在「Expected ',' or '}' …」上，
+  // 看着像夹具坏了，其实是被测的 Cookie 根本没签名。
+  if (separator <= 0) {
+    throw new Error(`state Cookie 没有签名段（前 32 字符：${decoded.slice(0, 32)}…）`);
+  }
+  return decoded.slice(0, separator);
 }
 
 suite('M5-B OIDC 企业登录、账号绑定与受邀开通', () => {
@@ -250,6 +297,7 @@ suite('M5-B OIDC 企业登录、账号绑定与受邀开通', () => {
       status: response.statusCode,
       location: typeof response.headers.location === 'string' ? response.headers.location : null,
       sessionCookie: cookieFrom(response, 'yunshuo_session'),
+      entries: setCookieEntries(response.headers),
     };
   }
 
@@ -537,5 +585,161 @@ suite('M5-B OIDC 企业登录、账号绑定与受邀开通', () => {
     const replay = await callback(stateCookie, callbackUrl);
     expect(replay.sessionCookie).toBeNull();
     expect(errorCode(replay)).toBe('OIDC_CODE_REJECTED');
+  });
+
+  it('启用链上种下的 state Cookie：四条属性逐字、签名验得过、载荷与授权 URL 是同一套', async () => {
+    mock!.setIdentity({
+      email: emails.existing,
+      emailVerified: true,
+      name: '既有本地作者',
+      subject: `subject-cookie-shape-${RUN_ID}`,
+    });
+    const started = await app.inject({ method: 'GET', url: '/api/auth/oidc/start' });
+    expect(started.statusCode).toBe(302);
+    // 这一跳要把 state、nonce、codeVerifier 全留在这台浏览器上；缓存住等于把一次登录的前置材料
+    // 交给下一个访客（或下一段共用代理）。
+    expect(started.headers['cache-control']).toBe('no-store');
+
+    const entries = setCookieEntries(started.headers);
+    expect(entries).toHaveLength(1);
+    const state = readSetCookie(entries[0]!);
+    expect(state.name).toBe(OIDC_STATE_COOKIE);
+    // 整组属性逐字比对：多一条、少一条、换一条都算红。
+    expect(state.attributes).toEqual([
+      'HttpOnly',
+      'Max-Age=600',
+      'Path=/api/auth/oidc',
+      'SameSite=Lax',
+    ]);
+    // Path 与清除那侧共用同一个导出常量，否则浏览器根本删不掉它（`routes/auth.ts:61` 与 `:72`）。
+    expect(state.attributes.filter((attribute) => attribute.startsWith('Path=')))
+      .toEqual([`Path=${OIDC_STATE_COOKIE_PATH}`]);
+    // 测试装配下 `env.cookieSecure` 为假，所以这组里不该有 Secure。生产那一支（真时补上）本族不钉：
+    // `start` 第一句就 discover()，需要一个真能 HTTPS 访问的 IdP。
+    expect(state.attributes.some((attribute) => attribute.toLowerCase() === 'secure')).toBe(false);
+    // 只给 Max-Age：同时给 Expires 会在旧浏览器上留下两个不一致的寿命。
+    expect(state.attributes.some((attribute) => attribute.startsWith('Expires='))).toBe(false);
+
+    const decoded = decodeURIComponent(state.value);
+    expect(app.unsignCookie(decoded).valid).toBe(true);
+    expect(app.unsignCookie(`${decoded}tampered`).valid).toBe(false);
+
+    const payload = JSON.parse(signedPayload(state.value)) as {
+      state: string;
+      nonce: string;
+      codeVerifier: string;
+      createdAt: number;
+    };
+    expect(Object.keys(payload).sort()).toEqual(['codeVerifier', 'createdAt', 'nonce', 'state']);
+    expect(payload.createdAt).toBeGreaterThan(Date.now() - 5_000);
+    expect(payload.createdAt).toBeLessThanOrEqual(Date.now());
+
+    // 种下的这套材料必须就是发给 IdP 的那一套：三个键各自对一次，缺一个都对不上回调。
+    const authorizationUrl = new URL(started.headers.location as string);
+    expect(payload.state).toBe(authorizationUrl.searchParams.get('state'));
+    expect(payload.nonce).toBe(authorizationUrl.searchParams.get('nonce'));
+    expect(createHash('sha256').update(payload.codeVerifier).digest('base64url')).toBe(
+      authorizationUrl.searchParams.get('code_challenge'),
+    );
+    expect(authorizationUrl.searchParams.get('code_challenge_method')).toBe('S256');
+  });
+
+  it('回调无论成败都把 state Cookie 按同一路径清掉，且只留该留的那几条', async () => {
+    const clearedAttributes = [
+      'Expires=Thu, 01 Jan 1970 00:00:00 GMT',
+      'Max-Age=0',
+      `Path=${OIDC_STATE_COOKIE_PATH}`,
+      'SameSite=Lax',
+    ];
+
+    // 成功一侧：重新登录既有 subject，只多出一次会话，不新增身份行。
+    const succeeded = await completeFlow({
+      email: emails.existing,
+      emailVerified: true,
+      name: '既有本地作者',
+      subject: `subject-existing-${RUN_ID}`,
+    });
+    expect(succeeded.status).toBe(302);
+    expect(succeeded.entries).toHaveLength(2);
+    const clearEntry = succeeded.entries.find((entry) => entry.startsWith(`${OIDC_STATE_COOKIE}=`));
+    if (!clearEntry) throw new Error(`成功回调没清 state Cookie：${JSON.stringify(succeeded.entries)}`);
+    const cleared = readSetCookie(clearEntry);
+    expect(cleared.value).toBe('');
+    // 先单独看这两条：清除指令的归因就是「Path 与种下时逐字相同」+「寿命归零」。
+    // 只留下面那组整组比对的话，Path 分叉时的红字是 `[…(4)] vs […(4)]`，看不出谁变了。
+    expect(cleared.attributes.filter((attribute) => /^(Path|Max-Age)=/.test(attribute))).toEqual([
+      'Max-Age=0',
+      `Path=${OIDC_STATE_COOKIE_PATH}`,
+    ]);
+    expect(cleared.attributes).toEqual(clearedAttributes);
+    // Max-Age=0 与纪元 Expires 两条一起给是删除 Cookie 的兼容写法；关键是 Path 与种下时逐字相同。
+    expect(succeeded.entries.filter((entry) => entry.startsWith('yunshuo_session='))).toHaveLength(1);
+
+    // 被拒的一侧：同一条清除指令，且不带会话 Cookie。拒绝之后材料不该还挂在浏览器上。
+    const { stateCookie, authorizationUrl } = await startFlow({
+      email: emails.existing,
+      emailVerified: true,
+      name: '既有本地作者',
+      subject: `subject-clear-on-reject-${RUN_ID}`,
+    });
+    const callbackUrl = await authorizationCallback(authorizationUrl);
+    callbackUrl.searchParams.set('state', 'tampered-state');
+    const rejected = await callback(stateCookie, callbackUrl);
+    expect(errorCode(rejected)).toBe('OIDC_STATE_INVALID');
+    expect(rejected.sessionCookie).toBeNull();
+    expect(rejected.entries).toHaveLength(1);
+    expect(readSetCookie(rejected.entries[0]!).attributes).toEqual(cleared.attributes);
+  });
+
+  it('state Cookie 的寿命就是它自己声明的那个 Max-Age：两头各差一分钟，两个码互斥', async () => {
+    mock!.setIdentity({
+      email: emails.existing,
+      emailVerified: true,
+      name: '既有本地作者',
+      subject: `subject-state-age-${RUN_ID}`,
+    });
+    const started = await app.inject({ method: 'GET', url: '/api/auth/oidc/start' });
+    const state = readSetCookie(setCookieEntries(started.headers)[0]!);
+    // 阈值从浏览器看到的那条 Max-Age 推出来，而不是在本文件再抄一遍 600：
+    // `routes/auth.ts:62` 的 600 与 `oidc-service.ts:11` 的 10*60*1000 分处两个文件，
+    // 只有跨过这条推导，才证明它们说的是同一个 10 分钟。
+    const maxAgeAttribute = state.attributes.find((attribute) => attribute.startsWith('Max-Age='));
+    if (!maxAgeAttribute) throw new Error(`state Cookie 没有 Max-Age：${JSON.stringify(state.attributes)}`);
+    const maxAgeSeconds = Number(maxAgeAttribute.slice('Max-Age='.length));
+    expect(Number.isInteger(maxAgeSeconds)).toBe(true);
+
+    const payload = JSON.parse(signedPayload(state.value)) as {
+      state: string;
+      nonce: string;
+      codeVerifier: string;
+      createdAt: number;
+    };
+    // 签传真值：用 app.signCookie 重新签一条，走的就是回调里那句 unsignCookie 的对称面。
+    const forge = (createdAt: number): string =>
+      `${OIDC_STATE_COOKIE}=${encodeURIComponent(
+        app.signCookie(JSON.stringify({ ...payload, createdAt })),
+      )}`;
+    // 授权码用一条模拟 IdP 从未签发过的：过期守卫一旦被摘掉，这条请求会一路走到令牌端点，
+    // 换成 OIDC_CODE_REJECTED 而不是 OIDC_STATE_EXPIRED。两个码互斥，红字才归得因。
+    const callbackUrl = new URL('http://localhost:3100/api/auth/oidc/callback');
+    callbackUrl.searchParams.set('code', `code-never-issued-${RUN_ID}`);
+    callbackUrl.searchParams.set('state', payload.state);
+
+    const expired = await callback(forge(Date.now() - (maxAgeSeconds + 1) * 1000), callbackUrl);
+    expect(errorCode(expired)).toBe('OIDC_STATE_EXPIRED');
+    expect(expired.sessionCookie).toBeNull();
+    expect(expired.entries.filter((entry) => entry.startsWith(`${OIDC_STATE_COOKIE}=`))).toHaveLength(1);
+
+    // 未过期一侧留 60 秒而不是 1 秒：这一侧的误差方向是偶发假失败（机器一慢就误判成过期），
+    // 而上面那一侧单调安全（时间只会让它更旧）。60 秒足以抓走任何一档常量改动。
+    const straddled = await callback(forge(Date.now() - (maxAgeSeconds - 60) * 1000), callbackUrl);
+    expect(errorCode(straddled)).toBe('OIDC_CODE_REJECTED');
+    expect(straddled.sessionCookie).toBeNull();
+
+    const identities = await sql<{ count: number }[]>`
+      SELECT count(*)::int AS count FROM user_identities
+      WHERE subject = ${`subject-state-age-${RUN_ID}`}
+    `;
+    expect(identities[0]?.count).toBe(0);
   });
 });

@@ -1,0 +1,2453 @@
+{
+  "generatedAt": "2026-10-22T18:52:28.672Z",
+  "base": "http://127.0.0.1:3101",
+  "database": "yunshuo_test",
+  "runId": "b3e15407",
+  "runLabel": "ledger",
+  "scenario": "千章规模账本索引与检索：导入 1000 章 × 600 字 + 发布 1000 条账本条目，真实 worker 分别排空正典与账本投影，再做词法与混合检索（账本通道单独计数）",
+  "workTitle": "账本索引压测作品 b3e15407",
+  "cleanupWindowStart": "2026-10-22 17:36:37.439973+00",
+  "config": {
+    "chapterTarget": 1000,
+    "charsPerChapter": 600,
+    "entryTarget": 1000,
+    "entryMix": {
+      "setting": 500,
+      "character": 300,
+      "foreshadowing": 200,
+      "workScopedSettings": 350
+    },
+    "importBatchSize": 1000,
+    "pollMs": 20000,
+    "timeoutMs": 5400000,
+    "embedBaseUrl": "http://127.0.0.1:11434/v1",
+    "embedModel": "bge-m3:latest",
+    "repeatsPerQuery": 3,
+    "automationRunner": "关闭（AUTOMATION_RUNNER=0，独立实例指向 yunshuo_test）"
+  },
+  "caveats": [
+    "合成正文与合成条目：同一组 8 句 filler 循环拼接，条目字段也从 filler 派生，检索命中不具备语义难度。",
+    "条目数量是按\"千章作品的上限\"构造的，不代表真实作品的账本规模；名称/别名/章节绑定按序号散布。",
+    "正典与账本本轮用同一个服务商同一个模型（同维度），检索只发一次查询向量、两个通道共用；模型/维度不同才走双查询向量那条分支，本脚本没有覆盖它。",
+    "实例形状：正典阶段采样里同时在处理的任务最多 989 条，远超单实例 10 条的领用上限，说明当时有多个 worker 在领同一张 outbox（事后确认是历史遗留的孤儿 worker 进程）；账本阶段最多 10 条，与单实例一致。两段排空速率都受本机嵌入服务串行处理约束，因此\"每分钟条数\"应读作这台机器上的端到端排空速率，而不是单 worker 吞吐。POLL_MS 之间的采样是瞬时值而不是持续吞吐。",
+    "嵌入服务为本机模型，输入价填 0，成本数字不代表任何付费服务商。",
+    "本轮没有并发读写混合（发布与索引串行），没有多工作区，没有 Studio 容器内测量，也没有做账本检索质量评估。"
+  ],
+  "baselineCounts": {
+    "works": 1,
+    "chapters": 2,
+    "canon_versions": 1,
+    "canon_current": 1,
+    "canon_chunks": 0,
+    "chunk_embeddings": 0,
+    "index_status": 1,
+    "ledger_entries": 0,
+    "ledger_entry_versions": 0,
+    "ledger_entry_aliases": 0,
+    "ledger_chunks": 0,
+    "ledger_chunk_embeddings": 0,
+    "ledger_index_status": 0,
+    "chapter_ledger_links": 0,
+    "chapter_metadata": 1,
+    "outbox": 0,
+    "model_calls": 0,
+    "providers": 0,
+    "sessions": 0,
+    "events": 3,
+    "audit": 119
+  },
+  "workspaceCountersBefore": {
+    "settingsVersion": 1,
+    "ledgerVersion": 23
+  },
+  "embedServiceProbe": {
+    "reachable": true,
+    "modelSeenInList": true
+  },
+  "import": {
+    "batches": [
+      {
+        "chapterCount": 1000,
+        "importMs": 4854,
+        "requestBodyBytes": 1861912,
+        "storedWordCount": 600000
+      }
+    ],
+    "totalChapters": 1000,
+    "totalImportMs": 4854
+  },
+  "canonDrain": {
+    "fullyDrained": true,
+    "timedOut": false,
+    "elapsedMs": 2117649,
+    "chaptersPerMinute": 28.33,
+    "samples": [
+      {
+        "elapsedMs": 0,
+        "elapsedSec": 0,
+        "indexStatus": "pending=1000",
+        "outbox": "pending=1000",
+        "progress": "canon_chunks=0",
+        "workerRssMb": 83.5,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 21838,
+        "elapsedSec": 22,
+        "indexStatus": "indexing=1,pending=989,ready=10",
+        "outbox": "processed=11,processing=989",
+        "progress": "canon_chunks=22",
+        "workerRssMb": 84.7,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 44111,
+        "elapsedSec": 44,
+        "indexStatus": "indexing=1,pending=978,ready=21",
+        "outbox": "processed=22,processing=978",
+        "progress": "canon_chunks=44",
+        "workerRssMb": 86.9,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 66311,
+        "elapsedSec": 66,
+        "indexStatus": "indexing=1,pending=967,ready=32",
+        "outbox": "processed=32,processing=968",
+        "progress": "canon_chunks=64",
+        "workerRssMb": 86.9,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 88296,
+        "elapsedSec": 88,
+        "indexStatus": "indexing=1,pending=957,ready=42",
+        "outbox": "processed=42,processing=958",
+        "progress": "canon_chunks=86",
+        "workerRssMb": 87.1,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 110245,
+        "elapsedSec": 110,
+        "indexStatus": "indexing=1,pending=946,ready=53",
+        "outbox": "processed=53,processing=947",
+        "progress": "canon_chunks=106",
+        "workerRssMb": 87,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 132369,
+        "elapsedSec": 132,
+        "indexStatus": "indexing=1,pending=936,ready=63",
+        "outbox": "processed=63,processing=937",
+        "progress": "canon_chunks=126",
+        "workerRssMb": 87.1,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 154400,
+        "elapsedSec": 154,
+        "indexStatus": "indexing=1,pending=926,ready=73",
+        "outbox": "processed=73,processing=927",
+        "progress": "canon_chunks=146",
+        "workerRssMb": 87,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 176279,
+        "elapsedSec": 176,
+        "indexStatus": "indexing=1,pending=916,ready=83",
+        "outbox": "processed=83,processing=917",
+        "progress": "canon_chunks=168",
+        "workerRssMb": 87.1,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 198362,
+        "elapsedSec": 198,
+        "indexStatus": "indexing=1,pending=905,ready=94",
+        "outbox": "processed=94,processing=906",
+        "progress": "canon_chunks=188",
+        "workerRssMb": 87.2,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 220464,
+        "elapsedSec": 220,
+        "indexStatus": "indexing=1,pending=894,ready=105",
+        "outbox": "processed=105,processing=895",
+        "progress": "canon_chunks=210",
+        "workerRssMb": 87.8,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 242448,
+        "elapsedSec": 242,
+        "indexStatus": "indexing=1,pending=884,ready=115",
+        "outbox": "processed=115,processing=885",
+        "progress": "canon_chunks=230",
+        "workerRssMb": 88.9,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 264510,
+        "elapsedSec": 265,
+        "indexStatus": "indexing=1,pending=873,ready=126",
+        "outbox": "processed=126,processing=874",
+        "progress": "canon_chunks=252",
+        "workerRssMb": 89.1,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 286629,
+        "elapsedSec": 287,
+        "indexStatus": "indexing=1,pending=862,ready=137",
+        "outbox": "processed=137,processing=863",
+        "progress": "canon_chunks=274",
+        "workerRssMb": 89.2,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 308814,
+        "elapsedSec": 309,
+        "indexStatus": "indexing=1,pending=852,ready=147",
+        "outbox": "processed=147,processing=853",
+        "progress": "canon_chunks=294",
+        "workerRssMb": 89.2,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 330862,
+        "elapsedSec": 331,
+        "indexStatus": "indexing=1,pending=842,ready=157",
+        "outbox": "processed=157,processing=843",
+        "progress": "canon_chunks=316",
+        "workerRssMb": 88.9,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 352893,
+        "elapsedSec": 353,
+        "indexStatus": "indexing=1,pending=831,ready=168",
+        "outbox": "processed=168,processing=832",
+        "progress": "canon_chunks=336",
+        "workerRssMb": 89.1,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 374980,
+        "elapsedSec": 375,
+        "indexStatus": "indexing=1,pending=822,ready=177",
+        "outbox": "processed=177,processing=823",
+        "progress": "canon_chunks=354",
+        "workerRssMb": 89.7,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 397415,
+        "elapsedSec": 397,
+        "indexStatus": "indexing=1,pending=812,ready=187",
+        "outbox": "processed=188,processing=812",
+        "progress": "canon_chunks=376",
+        "workerRssMb": 89.7,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 419550,
+        "elapsedSec": 420,
+        "indexStatus": "indexing=1,pending=801,ready=198",
+        "outbox": "processed=198,processing=802",
+        "progress": "canon_chunks=396",
+        "workerRssMb": 89.3,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 441676,
+        "elapsedSec": 442,
+        "indexStatus": "indexing=1,pending=791,ready=208",
+        "outbox": "processed=208,processing=792",
+        "progress": "canon_chunks=416",
+        "workerRssMb": 89.6,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 463738,
+        "elapsedSec": 464,
+        "indexStatus": "indexing=1,pending=780,ready=219",
+        "outbox": "processed=219,processing=781",
+        "progress": "canon_chunks=438",
+        "workerRssMb": 89.8,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 485868,
+        "elapsedSec": 486,
+        "indexStatus": "indexing=1,pending=770,ready=229",
+        "outbox": "processed=229,processing=771",
+        "progress": "canon_chunks=458",
+        "workerRssMb": 89.3,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 508057,
+        "elapsedSec": 508,
+        "indexStatus": "indexing=1,pending=759,ready=240",
+        "outbox": "processed=240,processing=760",
+        "progress": "canon_chunks=480",
+        "workerRssMb": 89.7,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 530027,
+        "elapsedSec": 530,
+        "indexStatus": "indexing=1,pending=749,ready=250",
+        "outbox": "processed=250,processing=750",
+        "progress": "canon_chunks=500",
+        "workerRssMb": 89.8,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 552127,
+        "elapsedSec": 552,
+        "indexStatus": "indexing=1,pending=739,ready=260",
+        "outbox": "processed=261,processing=739",
+        "progress": "canon_chunks=522",
+        "workerRssMb": 89.9,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 574281,
+        "elapsedSec": 574,
+        "indexStatus": "indexing=1,pending=728,ready=271",
+        "outbox": "processed=271,processing=729",
+        "progress": "canon_chunks=542",
+        "workerRssMb": 89.8,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 596336,
+        "elapsedSec": 596,
+        "indexStatus": "indexing=1,pending=717,ready=282",
+        "outbox": "processed=282,processing=718",
+        "progress": "canon_chunks=564",
+        "workerRssMb": 89.9,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 618344,
+        "elapsedSec": 618,
+        "indexStatus": "indexing=1,pending=707,ready=292",
+        "outbox": "processed=292,processing=708",
+        "progress": "canon_chunks=584",
+        "workerRssMb": 90,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 640278,
+        "elapsedSec": 640,
+        "indexStatus": "indexing=1,pending=697,ready=302",
+        "outbox": "processed=302,processing=698",
+        "progress": "canon_chunks=604",
+        "workerRssMb": 90,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 662385,
+        "elapsedSec": 662,
+        "indexStatus": "indexing=1,pending=686,ready=313",
+        "outbox": "processed=313,processing=687",
+        "progress": "canon_chunks=626",
+        "workerRssMb": 89.8,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 684482,
+        "elapsedSec": 684,
+        "indexStatus": "indexing=1,pending=676,ready=323",
+        "outbox": "processed=324,processing=676",
+        "progress": "canon_chunks=648",
+        "workerRssMb": 89.8,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 706583,
+        "elapsedSec": 707,
+        "indexStatus": "indexing=1,pending=665,ready=334",
+        "outbox": "processed=334,processing=666",
+        "progress": "canon_chunks=668",
+        "workerRssMb": 89.9,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 728432,
+        "elapsedSec": 728,
+        "indexStatus": "indexing=1,pending=655,ready=344",
+        "outbox": "processed=345,processing=655",
+        "progress": "canon_chunks=690",
+        "workerRssMb": 90.1,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 750530,
+        "elapsedSec": 751,
+        "indexStatus": "indexing=1,pending=644,ready=355",
+        "outbox": "processed=355,processing=645",
+        "progress": "canon_chunks=710",
+        "workerRssMb": 90.1,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 772613,
+        "elapsedSec": 773,
+        "indexStatus": "indexing=1,pending=634,ready=365",
+        "outbox": "processed=366,processing=634",
+        "progress": "canon_chunks=732",
+        "workerRssMb": 90.1,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 794583,
+        "elapsedSec": 795,
+        "indexStatus": "indexing=1,pending=623,ready=376",
+        "outbox": "processed=376,processing=624",
+        "progress": "canon_chunks=752",
+        "workerRssMb": 90,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 816709,
+        "elapsedSec": 817,
+        "indexStatus": "indexing=1,pending=612,ready=387",
+        "outbox": "processed=387,processing=613",
+        "progress": "canon_chunks=774",
+        "workerRssMb": 90.2,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 838721,
+        "elapsedSec": 839,
+        "indexStatus": "indexing=1,pending=602,ready=397",
+        "outbox": "processed=397,processing=603",
+        "progress": "canon_chunks=794",
+        "workerRssMb": 90.2,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 860739,
+        "elapsedSec": 861,
+        "indexStatus": "indexing=1,pending=592,ready=407",
+        "outbox": "processed=407,processing=593",
+        "progress": "canon_chunks=814",
+        "workerRssMb": 90,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 882844,
+        "elapsedSec": 883,
+        "indexStatus": "indexing=1,pending=581,ready=418",
+        "outbox": "processed=418,processing=582",
+        "progress": "canon_chunks=836",
+        "workerRssMb": 90.2,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 904801,
+        "elapsedSec": 905,
+        "indexStatus": "indexing=1,pending=571,ready=428",
+        "outbox": "processed=428,processing=572",
+        "progress": "canon_chunks=856",
+        "workerRssMb": 90,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 926817,
+        "elapsedSec": 927,
+        "indexStatus": "indexing=1,pending=561,ready=438",
+        "outbox": "processed=438,processing=562",
+        "progress": "canon_chunks=876",
+        "workerRssMb": 90.4,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 948839,
+        "elapsedSec": 949,
+        "indexStatus": "indexing=1,pending=550,ready=449",
+        "outbox": "processed=449,processing=551",
+        "progress": "canon_chunks=898",
+        "workerRssMb": 90.6,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 970914,
+        "elapsedSec": 971,
+        "indexStatus": "indexing=1,pending=540,ready=459",
+        "outbox": "processed=459,processing=541",
+        "progress": "canon_chunks=918",
+        "workerRssMb": 90.7,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 993020,
+        "elapsedSec": 993,
+        "indexStatus": "indexing=1,pending=529,ready=470",
+        "outbox": "processed=470,processing=530",
+        "progress": "canon_chunks=940",
+        "workerRssMb": 90,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1015041,
+        "elapsedSec": 1015,
+        "indexStatus": "indexing=1,pending=519,ready=480",
+        "outbox": "processed=480,processing=520",
+        "progress": "canon_chunks=960",
+        "workerRssMb": 90.8,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1037033,
+        "elapsedSec": 1037,
+        "indexStatus": "indexing=1,pending=508,ready=491",
+        "outbox": "processed=491,processing=509",
+        "progress": "canon_chunks=982",
+        "workerRssMb": 90.8,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1059155,
+        "elapsedSec": 1059,
+        "indexStatus": "indexing=1,pending=498,ready=501",
+        "outbox": "processed=501,processing=499",
+        "progress": "canon_chunks=1002",
+        "workerRssMb": 90.7,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1081141,
+        "elapsedSec": 1081,
+        "indexStatus": "indexing=1,pending=487,ready=512",
+        "outbox": "processed=512,processing=488",
+        "progress": "canon_chunks=1024",
+        "workerRssMb": 90.3,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1103084,
+        "elapsedSec": 1103,
+        "indexStatus": "indexing=1,pending=477,ready=522",
+        "outbox": "processed=522,processing=478",
+        "progress": "canon_chunks=1044",
+        "workerRssMb": 90.8,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1125122,
+        "elapsedSec": 1125,
+        "indexStatus": "indexing=1,pending=466,ready=533",
+        "outbox": "processed=533,processing=467",
+        "progress": "canon_chunks=1066",
+        "workerRssMb": 90.7,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1147171,
+        "elapsedSec": 1147,
+        "indexStatus": "indexing=1,pending=456,ready=543",
+        "outbox": "processed=543,processing=457",
+        "progress": "canon_chunks=1086",
+        "workerRssMb": 90.8,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1169089,
+        "elapsedSec": 1169,
+        "indexStatus": "indexing=1,pending=445,ready=554",
+        "outbox": "processed=554,processing=446",
+        "progress": "canon_chunks=1108",
+        "workerRssMb": 90.8,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1191280,
+        "elapsedSec": 1191,
+        "indexStatus": "indexing=1,pending=435,ready=564",
+        "outbox": "processed=564,processing=436",
+        "progress": "canon_chunks=1130",
+        "workerRssMb": 90.5,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1213385,
+        "elapsedSec": 1213,
+        "indexStatus": "indexing=1,pending=425,ready=574",
+        "outbox": "processed=575,processing=425",
+        "progress": "canon_chunks=1150",
+        "workerRssMb": 90.7,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1235369,
+        "elapsedSec": 1235,
+        "indexStatus": "indexing=1,pending=414,ready=585",
+        "outbox": "processed=585,processing=415",
+        "progress": "canon_chunks=1170",
+        "workerRssMb": 90.7,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1257480,
+        "elapsedSec": 1257,
+        "indexStatus": "indexing=1,pending=404,ready=595",
+        "outbox": "processed=596,processing=404",
+        "progress": "canon_chunks=1192",
+        "workerRssMb": 90.7,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1279500,
+        "elapsedSec": 1280,
+        "indexStatus": "indexing=1,pending=393,ready=606",
+        "outbox": "processed=606,processing=394",
+        "progress": "canon_chunks=1212",
+        "workerRssMb": 90.9,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1301514,
+        "elapsedSec": 1302,
+        "indexStatus": "indexing=1,pending=383,ready=616",
+        "outbox": "processed=616,processing=384",
+        "progress": "canon_chunks=1232",
+        "workerRssMb": 90.9,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1323582,
+        "elapsedSec": 1324,
+        "indexStatus": "indexing=1,pending=372,ready=627",
+        "outbox": "processed=627,processing=373",
+        "progress": "canon_chunks=1254",
+        "workerRssMb": 90.9,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1345614,
+        "elapsedSec": 1346,
+        "indexStatus": "indexing=1,pending=362,ready=637",
+        "outbox": "processed=637,processing=363",
+        "progress": "canon_chunks=1274",
+        "workerRssMb": 90.7,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1367663,
+        "elapsedSec": 1368,
+        "indexStatus": "indexing=1,pending=352,ready=647",
+        "outbox": "processed=647,processing=353",
+        "progress": "canon_chunks=1294",
+        "workerRssMb": 91.1,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1389544,
+        "elapsedSec": 1390,
+        "indexStatus": "indexing=1,pending=341,ready=658",
+        "outbox": "processed=658,processing=342",
+        "progress": "canon_chunks=1316",
+        "workerRssMb": 91.4,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1411646,
+        "elapsedSec": 1412,
+        "indexStatus": "indexing=1,pending=331,ready=668",
+        "outbox": "processed=668,processing=332",
+        "progress": "canon_chunks=1338",
+        "workerRssMb": 91.4,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1433644,
+        "elapsedSec": 1434,
+        "indexStatus": "indexing=1,pending=320,ready=679",
+        "outbox": "processed=679,processing=321",
+        "progress": "canon_chunks=1358",
+        "workerRssMb": 91.5,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1455787,
+        "elapsedSec": 1456,
+        "indexStatus": "indexing=1,pending=310,ready=689",
+        "outbox": "processed=689,processing=311",
+        "progress": "canon_chunks=1378",
+        "workerRssMb": 91,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1477875,
+        "elapsedSec": 1478,
+        "indexStatus": "indexing=1,pending=299,ready=700",
+        "outbox": "processed=700,processing=300",
+        "progress": "canon_chunks=1400",
+        "workerRssMb": 91.7,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1499932,
+        "elapsedSec": 1500,
+        "indexStatus": "indexing=1,pending=289,ready=710",
+        "outbox": "processed=710,processing=290",
+        "progress": "canon_chunks=1420",
+        "workerRssMb": 91.7,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1522001,
+        "elapsedSec": 1522,
+        "indexStatus": "indexing=1,pending=279,ready=720",
+        "outbox": "processed=720,processing=280",
+        "progress": "canon_chunks=1440",
+        "workerRssMb": 91.7,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1544026,
+        "elapsedSec": 1544,
+        "indexStatus": "indexing=1,pending=268,ready=731",
+        "outbox": "processed=731,processing=269",
+        "progress": "canon_chunks=1462",
+        "workerRssMb": 91.8,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1566114,
+        "elapsedSec": 1566,
+        "indexStatus": "indexing=1,pending=258,ready=741",
+        "outbox": "processed=741,processing=259",
+        "progress": "canon_chunks=1482",
+        "workerRssMb": 91.6,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1588167,
+        "elapsedSec": 1588,
+        "indexStatus": "indexing=1,pending=248,ready=751",
+        "outbox": "processed=752,processing=248",
+        "progress": "canon_chunks=1504",
+        "workerRssMb": 91.6,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1610291,
+        "elapsedSec": 1610,
+        "indexStatus": "indexing=1,pending=237,ready=762",
+        "outbox": "processed=762,processing=238",
+        "progress": "canon_chunks=1524",
+        "workerRssMb": 91.7,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1632400,
+        "elapsedSec": 1632,
+        "indexStatus": "indexing=1,pending=226,ready=773",
+        "outbox": "processed=773,processing=227",
+        "progress": "canon_chunks=1546",
+        "workerRssMb": 91.5,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1654601,
+        "elapsedSec": 1655,
+        "indexStatus": "indexing=1,pending=216,ready=783",
+        "outbox": "processed=783,processing=217",
+        "progress": "canon_chunks=1566",
+        "workerRssMb": 91.6,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1676599,
+        "elapsedSec": 1677,
+        "indexStatus": "indexing=1,pending=205,ready=794",
+        "outbox": "processed=794,processing=206",
+        "progress": "canon_chunks=1588",
+        "workerRssMb": 91.8,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1698584,
+        "elapsedSec": 1699,
+        "indexStatus": "indexing=1,pending=195,ready=804",
+        "outbox": "processed=804,processing=196",
+        "progress": "canon_chunks=1608",
+        "workerRssMb": 91.5,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1720567,
+        "elapsedSec": 1721,
+        "indexStatus": "indexing=1,pending=185,ready=814",
+        "outbox": "processed=814,processing=186",
+        "progress": "canon_chunks=1630",
+        "workerRssMb": 91.6,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1742583,
+        "elapsedSec": 1743,
+        "indexStatus": "indexing=1,pending=174,ready=825",
+        "outbox": "processed=825,processing=175",
+        "progress": "canon_chunks=1650",
+        "workerRssMb": 91.7,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1764680,
+        "elapsedSec": 1765,
+        "indexStatus": "indexing=1,pending=164,ready=835",
+        "outbox": "processed=835,processing=165",
+        "progress": "canon_chunks=1670",
+        "workerRssMb": 92.1,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1786782,
+        "elapsedSec": 1787,
+        "indexStatus": "indexing=1,pending=154,ready=845",
+        "outbox": "processed=845,processing=155",
+        "progress": "canon_chunks=1690",
+        "workerRssMb": 92.1,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1808889,
+        "elapsedSec": 1809,
+        "indexStatus": "indexing=1,pending=144,ready=855",
+        "outbox": "processed=855,processing=145",
+        "progress": "canon_chunks=1712",
+        "workerRssMb": 92.1,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1830932,
+        "elapsedSec": 1831,
+        "indexStatus": "indexing=1,pending=133,ready=866",
+        "outbox": "processed=866,processing=134",
+        "progress": "canon_chunks=1732",
+        "workerRssMb": 91.7,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1853140,
+        "elapsedSec": 1853,
+        "indexStatus": "indexing=1,pending=123,ready=876",
+        "outbox": "processed=876,processing=124",
+        "progress": "canon_chunks=1752",
+        "workerRssMb": 91.7,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1875370,
+        "elapsedSec": 1875,
+        "indexStatus": "indexing=1,pending=112,ready=887",
+        "outbox": "processed=887,processing=113",
+        "progress": "canon_chunks=1774",
+        "workerRssMb": 91.7,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1897551,
+        "elapsedSec": 1898,
+        "indexStatus": "indexing=1,pending=102,ready=897",
+        "outbox": "processed=897,processing=103",
+        "progress": "canon_chunks=1794",
+        "workerRssMb": 91.8,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1919432,
+        "elapsedSec": 1919,
+        "indexStatus": "indexing=1,pending=91,ready=908",
+        "outbox": "processed=908,processing=92",
+        "progress": "canon_chunks=1816",
+        "workerRssMb": 91.8,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1941517,
+        "elapsedSec": 1942,
+        "indexStatus": "indexing=1,pending=81,ready=918",
+        "outbox": "processed=918,processing=82",
+        "progress": "canon_chunks=1836",
+        "workerRssMb": 91.8,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1963418,
+        "elapsedSec": 1963,
+        "indexStatus": "indexing=1,pending=71,ready=928",
+        "outbox": "processed=928,processing=72",
+        "progress": "canon_chunks=1856",
+        "workerRssMb": 91.9,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 1985326,
+        "elapsedSec": 1985,
+        "indexStatus": "indexing=1,pending=60,ready=939",
+        "outbox": "processed=939,processing=61",
+        "progress": "canon_chunks=1878",
+        "workerRssMb": 91.4,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 2007389,
+        "elapsedSec": 2007,
+        "indexStatus": "indexing=1,pending=50,ready=949",
+        "outbox": "processed=949,processing=51",
+        "progress": "canon_chunks=1898",
+        "workerRssMb": 91.9,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 2029351,
+        "elapsedSec": 2029,
+        "indexStatus": "indexing=1,pending=40,ready=959",
+        "outbox": "processed=960,processing=40",
+        "progress": "canon_chunks=1920",
+        "workerRssMb": 92,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 2051568,
+        "elapsedSec": 2052,
+        "indexStatus": "indexing=1,pending=29,ready=970",
+        "outbox": "processed=970,processing=30",
+        "progress": "canon_chunks=1940",
+        "workerRssMb": 92,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 2073582,
+        "elapsedSec": 2074,
+        "indexStatus": "indexing=1,pending=19,ready=980",
+        "outbox": "processed=981,processing=19",
+        "progress": "canon_chunks=1962",
+        "workerRssMb": 92,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 2095630,
+        "elapsedSec": 2096,
+        "indexStatus": "indexing=1,pending=8,ready=991",
+        "outbox": "processed=991,processing=9",
+        "progress": "canon_chunks=1982",
+        "workerRssMb": 92,
+        "apiRssMb": 129.1
+      },
+      {
+        "elapsedMs": 2117649,
+        "elapsedSec": 2118,
+        "indexStatus": "ready=1000",
+        "outbox": "processed=1000",
+        "progress": "canon_chunks=2000",
+        "workerRssMb": 92,
+        "apiRssMb": 129.1
+      }
+    ]
+  },
+  "ledgerEntries": {
+    "target": 1000,
+    "published": 1000,
+    "failed": 0,
+    "failures": [],
+    "byKind": {
+      "setting": 500,
+      "character": 300,
+      "foreshadowing": 200
+    },
+    "byScope": {
+      "work": 850,
+      "workspace": 150
+    },
+    "createMedianMs": 26,
+    "publishMedianMs": 24,
+    "createTotalMs": 24055,
+    "publishTotalMs": 24721,
+    "note": "创建与发布各自计一次 HTTP 往返；发布同时写版本、生效指针、审计与 index.ledger outbox。"
+  },
+  "ledgerQueueStart": {
+    "at": "2026-10-22T18:12:50.607Z",
+    "indexStatus": "indexing=1,pending=977,ready=22",
+    "outbox": "pending=977,processed=1022,processing=1"
+  },
+  "ledgerDrain": {
+    "fullyDrained": true,
+    "timedOut": false,
+    "elapsedMs": 2359897,
+    "entriesPerMinute": 24.87,
+    "samples": [
+      {
+        "elapsedMs": 0,
+        "elapsedSec": 0,
+        "indexStatus": "indexing=1,pending=977,ready=22",
+        "outbox": "pending=977,processed=1022,processing=1",
+        "progress": "ledger_chunks=40 vectors=40",
+        "workerRssMb": 91.8,
+        "apiRssMb": 216
+      },
+      {
+        "elapsedMs": 21977,
+        "elapsedSec": 22,
+        "indexStatus": "indexing=1,pending=967,ready=32",
+        "outbox": "pending=967,processed=1032,processing=1",
+        "progress": "ledger_chunks=60 vectors=60",
+        "workerRssMb": 91.8,
+        "apiRssMb": 216
+      },
+      {
+        "elapsedMs": 43546,
+        "elapsedSec": 44,
+        "indexStatus": "indexing=1,pending=957,ready=42",
+        "outbox": "pending=957,processed=1043",
+        "progress": "ledger_chunks=78 vectors=78",
+        "workerRssMb": 91.9,
+        "apiRssMb": 216
+      },
+      {
+        "elapsedMs": 65144,
+        "elapsedSec": 65,
+        "indexStatus": "pending=947,ready=53",
+        "outbox": "pending=947,processed=1053",
+        "progress": "ledger_chunks=96 vectors=96",
+        "workerRssMb": 84.8,
+        "apiRssMb": 216
+      },
+      {
+        "elapsedMs": 86678,
+        "elapsedSec": 87,
+        "indexStatus": "pending=937,ready=63",
+        "outbox": "pending=937,processed=1063",
+        "progress": "ledger_chunks=114 vectors=114",
+        "workerRssMb": 85.5,
+        "apiRssMb": 216
+      },
+      {
+        "elapsedMs": 108328,
+        "elapsedSec": 108,
+        "indexStatus": "pending=927,ready=73",
+        "outbox": "pending=917,processed=1073,processing=10",
+        "progress": "ledger_chunks=132 vectors=132",
+        "workerRssMb": 85.5,
+        "apiRssMb": 101
+      },
+      {
+        "elapsedMs": 130144,
+        "elapsedSec": 130,
+        "indexStatus": "indexing=1,pending=916,ready=83",
+        "outbox": "pending=907,processed=1083,processing=10",
+        "progress": "ledger_chunks=150 vectors=150",
+        "workerRssMb": 85.7,
+        "apiRssMb": 101
+      },
+      {
+        "elapsedMs": 152071,
+        "elapsedSec": 152,
+        "indexStatus": "indexing=1,pending=906,ready=93",
+        "outbox": "pending=897,processed=1093,processing=10",
+        "progress": "ledger_chunks=168 vectors=168",
+        "workerRssMb": 87,
+        "apiRssMb": 101
+      },
+      {
+        "elapsedMs": 173904,
+        "elapsedSec": 174,
+        "indexStatus": "indexing=1,pending=896,ready=103",
+        "outbox": "pending=887,processed=1104,processing=9",
+        "progress": "ledger_chunks=188 vectors=188",
+        "workerRssMb": 88.2,
+        "apiRssMb": 101
+      },
+      {
+        "elapsedMs": 195812,
+        "elapsedSec": 196,
+        "indexStatus": "indexing=1,pending=886,ready=113",
+        "outbox": "pending=877,processed=1113,processing=10",
+        "progress": "ledger_chunks=204 vectors=204",
+        "workerRssMb": 88,
+        "apiRssMb": 101
+      },
+      {
+        "elapsedMs": 217685,
+        "elapsedSec": 218,
+        "indexStatus": "indexing=1,pending=875,ready=124",
+        "outbox": "pending=867,processed=1124,processing=9",
+        "progress": "ledger_chunks=223 vectors=223",
+        "workerRssMb": 88.1,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 239695,
+        "elapsedSec": 240,
+        "indexStatus": "indexing=1,pending=865,ready=134",
+        "outbox": "pending=857,processed=1134,processing=9",
+        "progress": "ledger_chunks=242 vectors=242",
+        "workerRssMb": 88.6,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 261685,
+        "elapsedSec": 262,
+        "indexStatus": "indexing=1,pending=854,ready=145",
+        "outbox": "pending=847,processed=1145,processing=8",
+        "progress": "ledger_chunks=261 vectors=261",
+        "workerRssMb": 89.8,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 283714,
+        "elapsedSec": 284,
+        "indexStatus": "indexing=1,pending=844,ready=155",
+        "outbox": "pending=837,processed=1155,processing=8",
+        "progress": "ledger_chunks=280 vectors=280",
+        "workerRssMb": 89.8,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 305939,
+        "elapsedSec": 306,
+        "indexStatus": "indexing=1,pending=834,ready=165",
+        "outbox": "pending=827,processed=1166,processing=7",
+        "progress": "ledger_chunks=299 vectors=299",
+        "workerRssMb": 89.8,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 328057,
+        "elapsedSec": 328,
+        "indexStatus": "indexing=1,pending=823,ready=176",
+        "outbox": "pending=817,processed=1176,processing=7",
+        "progress": "ledger_chunks=317 vectors=317",
+        "workerRssMb": 89.8,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 350206,
+        "elapsedSec": 350,
+        "indexStatus": "indexing=1,pending=814,ready=185",
+        "outbox": "pending=807,processed=1186,processing=7",
+        "progress": "ledger_chunks=336 vectors=336",
+        "workerRssMb": 90.8,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 372269,
+        "elapsedSec": 372,
+        "indexStatus": "indexing=1,pending=803,ready=196",
+        "outbox": "pending=797,processed=1196,processing=7",
+        "progress": "ledger_chunks=354 vectors=354",
+        "workerRssMb": 90.3,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 394318,
+        "elapsedSec": 394,
+        "indexStatus": "indexing=1,pending=792,ready=207",
+        "outbox": "pending=787,processed=1207,processing=6",
+        "progress": "ledger_chunks=373 vectors=373",
+        "workerRssMb": 90.9,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 416406,
+        "elapsedSec": 416,
+        "indexStatus": "indexing=1,pending=782,ready=217",
+        "outbox": "pending=777,processed=1217,processing=6",
+        "progress": "ledger_chunks=391 vectors=391",
+        "workerRssMb": 90.9,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 438396,
+        "elapsedSec": 438,
+        "indexStatus": "indexing=1,pending=771,ready=228",
+        "outbox": "pending=767,processed=1228,processing=5",
+        "progress": "ledger_chunks=411 vectors=411",
+        "workerRssMb": 90.6,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 460529,
+        "elapsedSec": 461,
+        "indexStatus": "indexing=1,pending=761,ready=238",
+        "outbox": "pending=757,processed=1238,processing=5",
+        "progress": "ledger_chunks=430 vectors=430",
+        "workerRssMb": 90.9,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 482584,
+        "elapsedSec": 483,
+        "indexStatus": "indexing=1,pending=750,ready=249",
+        "outbox": "pending=747,processed=1249,processing=4",
+        "progress": "ledger_chunks=449 vectors=449",
+        "workerRssMb": 87.1,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 504862,
+        "elapsedSec": 505,
+        "indexStatus": "indexing=1,pending=740,ready=259",
+        "outbox": "pending=737,processed=1259,processing=4",
+        "progress": "ledger_chunks=467 vectors=467",
+        "workerRssMb": 87.2,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 527044,
+        "elapsedSec": 527,
+        "indexStatus": "indexing=1,pending=729,ready=270",
+        "outbox": "pending=727,processed=1270,processing=3",
+        "progress": "ledger_chunks=486 vectors=486",
+        "workerRssMb": 87.3,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 548945,
+        "elapsedSec": 549,
+        "indexStatus": "indexing=1,pending=719,ready=280",
+        "outbox": "pending=717,processed=1280,processing=3",
+        "progress": "ledger_chunks=505 vectors=505",
+        "workerRssMb": 87,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 571074,
+        "elapsedSec": 571,
+        "indexStatus": "indexing=1,pending=708,ready=291",
+        "outbox": "pending=707,processed=1291,processing=2",
+        "progress": "ledger_chunks=524 vectors=524",
+        "workerRssMb": 87.7,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 593058,
+        "elapsedSec": 593,
+        "indexStatus": "indexing=1,pending=698,ready=301",
+        "outbox": "pending=697,processed=1301,processing=2",
+        "progress": "ledger_chunks=542 vectors=542",
+        "workerRssMb": 87.9,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 615079,
+        "elapsedSec": 615,
+        "indexStatus": "indexing=1,pending=688,ready=311",
+        "outbox": "pending=687,processed=1311,processing=2",
+        "progress": "ledger_chunks=561 vectors=561",
+        "workerRssMb": 88.2,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 637112,
+        "elapsedSec": 637,
+        "indexStatus": "indexing=1,pending=677,ready=322",
+        "outbox": "pending=677,processed=1322,processing=1",
+        "progress": "ledger_chunks=580 vectors=580",
+        "workerRssMb": 88.3,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 659112,
+        "elapsedSec": 659,
+        "indexStatus": "indexing=1,pending=667,ready=332",
+        "outbox": "pending=667,processed=1332,processing=1",
+        "progress": "ledger_chunks=598 vectors=598",
+        "workerRssMb": 89,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 680964,
+        "elapsedSec": 681,
+        "indexStatus": "indexing=1,pending=657,ready=342",
+        "outbox": "pending=657,processed=1342,processing=1",
+        "progress": "ledger_chunks=618 vectors=618",
+        "workerRssMb": 90.5,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 702477,
+        "elapsedSec": 702,
+        "indexStatus": "indexing=1,pending=647,ready=352",
+        "outbox": "pending=647,processed=1353",
+        "progress": "ledger_chunks=636 vectors=636",
+        "workerRssMb": 90.6,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 723979,
+        "elapsedSec": 724,
+        "indexStatus": "pending=637,ready=363",
+        "outbox": "pending=637,processed=1363",
+        "progress": "ledger_chunks=654 vectors=654",
+        "workerRssMb": 90.4,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 745413,
+        "elapsedSec": 745,
+        "indexStatus": "pending=627,ready=373",
+        "outbox": "pending=627,processed=1373",
+        "progress": "ledger_chunks=672 vectors=672",
+        "workerRssMb": 90.4,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 767229,
+        "elapsedSec": 767,
+        "indexStatus": "indexing=1,pending=616,ready=383",
+        "outbox": "pending=607,processed=1383,processing=10",
+        "progress": "ledger_chunks=690 vectors=690",
+        "workerRssMb": 90.5,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 789246,
+        "elapsedSec": 789,
+        "indexStatus": "indexing=1,pending=605,ready=394",
+        "outbox": "pending=597,processed=1394,processing=9",
+        "progress": "ledger_chunks=710 vectors=710",
+        "workerRssMb": 90.2,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 811528,
+        "elapsedSec": 812,
+        "indexStatus": "indexing=1,pending=595,ready=404",
+        "outbox": "pending=587,processed=1404,processing=9",
+        "progress": "ledger_chunks=728 vectors=728",
+        "workerRssMb": 90.3,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 834580,
+        "elapsedSec": 835,
+        "indexStatus": "indexing=1,pending=584,ready=415",
+        "outbox": "pending=577,processed=1415,processing=8",
+        "progress": "ledger_chunks=748 vectors=748",
+        "workerRssMb": 90.4,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 856646,
+        "elapsedSec": 857,
+        "indexStatus": "indexing=1,pending=574,ready=425",
+        "outbox": "pending=567,processed=1425,processing=8",
+        "progress": "ledger_chunks=765 vectors=765",
+        "workerRssMb": 90.3,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 878546,
+        "elapsedSec": 879,
+        "indexStatus": "indexing=1,pending=564,ready=435",
+        "outbox": "pending=557,processed=1436,processing=7",
+        "progress": "ledger_chunks=785 vectors=785",
+        "workerRssMb": 90.7,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 900731,
+        "elapsedSec": 901,
+        "indexStatus": "indexing=1,pending=553,ready=446",
+        "outbox": "pending=547,processed=1446,processing=7",
+        "progress": "ledger_chunks=804 vectors=804",
+        "workerRssMb": 90.4,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 922845,
+        "elapsedSec": 923,
+        "indexStatus": "indexing=1,pending=543,ready=456",
+        "outbox": "pending=537,processed=1457,processing=6",
+        "progress": "ledger_chunks=823 vectors=823",
+        "workerRssMb": 90.6,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 944978,
+        "elapsedSec": 945,
+        "indexStatus": "indexing=1,pending=532,ready=467",
+        "outbox": "pending=527,processed=1467,processing=6",
+        "progress": "ledger_chunks=842 vectors=842",
+        "workerRssMb": 90.7,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 967115,
+        "elapsedSec": 967,
+        "indexStatus": "indexing=1,pending=522,ready=477",
+        "outbox": "pending=517,processed=1477,processing=6",
+        "progress": "ledger_chunks=861 vectors=861",
+        "workerRssMb": 90.9,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 989229,
+        "elapsedSec": 989,
+        "indexStatus": "indexing=1,pending=511,ready=488",
+        "outbox": "pending=507,processed=1488,processing=5",
+        "progress": "ledger_chunks=880 vectors=880",
+        "workerRssMb": 90.5,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 1011312,
+        "elapsedSec": 1011,
+        "indexStatus": "indexing=1,pending=502,ready=497",
+        "outbox": "pending=497,processed=1497,processing=6",
+        "progress": "ledger_chunks=899 vectors=899",
+        "workerRssMb": 90.6,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 1033296,
+        "elapsedSec": 1033,
+        "indexStatus": "indexing=1,pending=494,ready=505",
+        "outbox": "pending=487,processed=1505,processing=8",
+        "progress": "ledger_chunks=914 vectors=914",
+        "workerRssMb": 90.6,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 1055445,
+        "elapsedSec": 1055,
+        "indexStatus": "indexing=1,pending=489,ready=510",
+        "outbox": "pending=487,processed=1510,processing=3",
+        "progress": "ledger_chunks=927 vectors=927",
+        "workerRssMb": 90.7,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 1077380,
+        "elapsedSec": 1077,
+        "indexStatus": "indexing=1,pending=482,ready=517",
+        "outbox": "pending=477,processed=1517,processing=6",
+        "progress": "ledger_chunks=944 vectors=944",
+        "workerRssMb": 90.7,
+        "apiRssMb": 99.2
+      },
+      {
+        "elapsedMs": 1099662,
+        "elapsedSec": 1100,
+        "indexStatus": "indexing=1,pending=477,ready=522",
+        "outbox": "pending=477,processed=1522,processing=1",
+        "progress": "ledger_chunks=959 vectors=959",
+        "workerRssMb": 90.8,
+        "apiRssMb": 99.6
+      },
+      {
+        "elapsedMs": 1121413,
+        "elapsedSec": 1121,
+        "indexStatus": "indexing=1,pending=471,ready=528",
+        "outbox": "pending=467,processed=1528,processing=5",
+        "progress": "ledger_chunks=975 vectors=975",
+        "workerRssMb": 90.6,
+        "apiRssMb": 99.6
+      },
+      {
+        "elapsedMs": 1143562,
+        "elapsedSec": 1144,
+        "indexStatus": "indexing=1,pending=466,ready=533",
+        "outbox": "pending=457,processed=1533,processing=10",
+        "progress": "ledger_chunks=989 vectors=989",
+        "workerRssMb": 90.7,
+        "apiRssMb": 99.6
+      },
+      {
+        "elapsedMs": 1165597,
+        "elapsedSec": 1166,
+        "indexStatus": "indexing=1,pending=460,ready=539",
+        "outbox": "pending=457,processed=1539,processing=4",
+        "progress": "ledger_chunks=1006 vectors=1006",
+        "workerRssMb": 90.4,
+        "apiRssMb": 99.6
+      },
+      {
+        "elapsedMs": 1187497,
+        "elapsedSec": 1187,
+        "indexStatus": "indexing=1,pending=454,ready=545",
+        "outbox": "pending=447,processed=1545,processing=8",
+        "progress": "ledger_chunks=1022 vectors=1022",
+        "workerRssMb": 90.9,
+        "apiRssMb": 99.6
+      },
+      {
+        "elapsedMs": 1209613,
+        "elapsedSec": 1210,
+        "indexStatus": "indexing=1,pending=448,ready=551",
+        "outbox": "pending=447,processed=1551,processing=2",
+        "progress": "ledger_chunks=1037 vectors=1037",
+        "workerRssMb": 91,
+        "apiRssMb": 99.6
+      },
+      {
+        "elapsedMs": 1231628,
+        "elapsedSec": 1232,
+        "indexStatus": "indexing=1,pending=442,ready=557",
+        "outbox": "pending=437,processed=1557,processing=6",
+        "progress": "ledger_chunks=1053 vectors=1053",
+        "workerRssMb": 91.2,
+        "apiRssMb": 99.6
+      },
+      {
+        "elapsedMs": 1253779,
+        "elapsedSec": 1254,
+        "indexStatus": "pending=437,ready=563",
+        "outbox": "pending=437,processed=1563",
+        "progress": "ledger_chunks=1072 vectors=1072",
+        "workerRssMb": 90.9,
+        "apiRssMb": 99.6
+      },
+      {
+        "elapsedMs": 1275580,
+        "elapsedSec": 1276,
+        "indexStatus": "indexing=1,pending=430,ready=569",
+        "outbox": "pending=427,processed=1569,processing=4",
+        "progress": "ledger_chunks=1087 vectors=1087",
+        "workerRssMb": 91,
+        "apiRssMb": 99.6
+      },
+      {
+        "elapsedMs": 1297846,
+        "elapsedSec": 1298,
+        "indexStatus": "indexing=1,pending=424,ready=575",
+        "outbox": "pending=417,processed=1575,processing=8",
+        "progress": "ledger_chunks=1103 vectors=1103",
+        "workerRssMb": 91,
+        "apiRssMb": 99.6
+      },
+      {
+        "elapsedMs": 1319896,
+        "elapsedSec": 1320,
+        "indexStatus": "indexing=1,pending=419,ready=580",
+        "outbox": "pending=417,processed=1580,processing=3",
+        "progress": "ledger_chunks=1119 vectors=1119",
+        "workerRssMb": 91,
+        "apiRssMb": 99.6
+      },
+      {
+        "elapsedMs": 1342163,
+        "elapsedSec": 1342,
+        "indexStatus": "indexing=1,pending=413,ready=586",
+        "outbox": "pending=407,processed=1586,processing=7",
+        "progress": "ledger_chunks=1134 vectors=1134",
+        "workerRssMb": 91.2,
+        "apiRssMb": 99.6
+      },
+      {
+        "elapsedMs": 1364530,
+        "elapsedSec": 1365,
+        "indexStatus": "indexing=1,pending=407,ready=592",
+        "outbox": "pending=407,processed=1592,processing=1",
+        "progress": "ledger_chunks=1149 vectors=1149",
+        "workerRssMb": 91.2,
+        "apiRssMb": 99.6
+      },
+      {
+        "elapsedMs": 1386763,
+        "elapsedSec": 1387,
+        "indexStatus": "indexing=1,pending=401,ready=598",
+        "outbox": "pending=397,processed=1598,processing=5",
+        "progress": "ledger_chunks=1166 vectors=1166",
+        "workerRssMb": 91.2,
+        "apiRssMb": 99.6
+      },
+      {
+        "elapsedMs": 1408964,
+        "elapsedSec": 1409,
+        "indexStatus": "indexing=1,pending=395,ready=604",
+        "outbox": "pending=387,processed=1604,processing=9",
+        "progress": "ledger_chunks=1182 vectors=1182",
+        "workerRssMb": 91.2,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 1431146,
+        "elapsedSec": 1431,
+        "indexStatus": "indexing=1,pending=390,ready=609",
+        "outbox": "pending=387,processed=1609,processing=4",
+        "progress": "ledger_chunks=1195 vectors=1195",
+        "workerRssMb": 91.3,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 1453263,
+        "elapsedSec": 1453,
+        "indexStatus": "indexing=1,pending=384,ready=615",
+        "outbox": "pending=377,processed=1615,processing=8",
+        "progress": "ledger_chunks=1212 vectors=1212",
+        "workerRssMb": 91.3,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 1475430,
+        "elapsedSec": 1475,
+        "indexStatus": "indexing=1,pending=378,ready=621",
+        "outbox": "pending=377,processed=1621,processing=2",
+        "progress": "ledger_chunks=1229 vectors=1229",
+        "workerRssMb": 91.3,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 1497479,
+        "elapsedSec": 1497,
+        "indexStatus": "indexing=1,pending=372,ready=627",
+        "outbox": "pending=367,processed=1627,processing=6",
+        "progress": "ledger_chunks=1244 vectors=1244",
+        "workerRssMb": 91.1,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 1519613,
+        "elapsedSec": 1520,
+        "indexStatus": "indexing=1,pending=366,ready=633",
+        "outbox": "pending=357,processed=1633,processing=10",
+        "progress": "ledger_chunks=1260 vectors=1260",
+        "workerRssMb": 91.3,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 1541697,
+        "elapsedSec": 1542,
+        "indexStatus": "indexing=1,pending=361,ready=638",
+        "outbox": "pending=357,processed=1638,processing=5",
+        "progress": "ledger_chunks=1275 vectors=1275",
+        "workerRssMb": 91.5,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 1563746,
+        "elapsedSec": 1564,
+        "indexStatus": "indexing=1,pending=355,ready=644",
+        "outbox": "pending=347,processed=1644,processing=9",
+        "progress": "ledger_chunks=1291 vectors=1291",
+        "workerRssMb": 91.6,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 1585949,
+        "elapsedSec": 1586,
+        "indexStatus": "indexing=1,pending=349,ready=650",
+        "outbox": "pending=347,processed=1650,processing=3",
+        "progress": "ledger_chunks=1308 vectors=1308",
+        "workerRssMb": 91.7,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 1608063,
+        "elapsedSec": 1608,
+        "indexStatus": "indexing=1,pending=343,ready=656",
+        "outbox": "pending=337,processed=1657,processing=6",
+        "progress": "ledger_chunks=1325 vectors=1325",
+        "workerRssMb": 91.7,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 1630146,
+        "elapsedSec": 1630,
+        "indexStatus": "indexing=1,pending=337,ready=662",
+        "outbox": "pending=337,processed=1662,processing=1",
+        "progress": "ledger_chunks=1340 vectors=1340",
+        "workerRssMb": 90.9,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 1652046,
+        "elapsedSec": 1652,
+        "indexStatus": "indexing=1,pending=332,ready=667",
+        "outbox": "pending=327,processed=1667,processing=6",
+        "progress": "ledger_chunks=1353 vectors=1353",
+        "workerRssMb": 91.5,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 1674096,
+        "elapsedSec": 1674,
+        "indexStatus": "indexing=1,pending=325,ready=674",
+        "outbox": "pending=317,processed=1674,processing=9",
+        "progress": "ledger_chunks=1371 vectors=1371",
+        "workerRssMb": 91.5,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 1696363,
+        "elapsedSec": 1696,
+        "indexStatus": "indexing=1,pending=319,ready=680",
+        "outbox": "pending=317,processed=1680,processing=3",
+        "progress": "ledger_chunks=1388 vectors=1388",
+        "workerRssMb": 91.5,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 1718465,
+        "elapsedSec": 1718,
+        "indexStatus": "indexing=1,pending=313,ready=686",
+        "outbox": "pending=307,processed=1686,processing=7",
+        "progress": "ledger_chunks=1404 vectors=1404",
+        "workerRssMb": 91.7,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 1740795,
+        "elapsedSec": 1741,
+        "indexStatus": "indexing=1,pending=307,ready=692",
+        "outbox": "pending=307,processed=1692,processing=1",
+        "progress": "ledger_chunks=1420 vectors=1420",
+        "workerRssMb": 91.7,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 1762795,
+        "elapsedSec": 1763,
+        "indexStatus": "indexing=1,pending=302,ready=697",
+        "outbox": "pending=297,processed=1697,processing=6",
+        "progress": "ledger_chunks=1436 vectors=1436",
+        "workerRssMb": 91,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 1784929,
+        "elapsedSec": 1785,
+        "indexStatus": "indexing=1,pending=296,ready=703",
+        "outbox": "pending=287,processed=1703,processing=10",
+        "progress": "ledger_chunks=1451 vectors=1451",
+        "workerRssMb": 91.5,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 1807280,
+        "elapsedSec": 1807,
+        "indexStatus": "indexing=1,pending=290,ready=709",
+        "outbox": "pending=287,processed=1709,processing=4",
+        "progress": "ledger_chunks=1468 vectors=1468",
+        "workerRssMb": 91.6,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 1829530,
+        "elapsedSec": 1830,
+        "indexStatus": "indexing=1,pending=283,ready=716",
+        "outbox": "pending=277,processed=1716,processing=7",
+        "progress": "ledger_chunks=1485 vectors=1485",
+        "workerRssMb": 91.6,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 1851880,
+        "elapsedSec": 1852,
+        "indexStatus": "indexing=1,pending=277,ready=722",
+        "outbox": "pending=277,processed=1722,processing=1",
+        "progress": "ledger_chunks=1502 vectors=1502",
+        "workerRssMb": 92,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 1874164,
+        "elapsedSec": 1874,
+        "indexStatus": "indexing=1,pending=272,ready=727",
+        "outbox": "pending=267,processed=1727,processing=6",
+        "progress": "ledger_chunks=1517 vectors=1517",
+        "workerRssMb": 92,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 1896547,
+        "elapsedSec": 1897,
+        "indexStatus": "indexing=1,pending=266,ready=733",
+        "outbox": "pending=257,processed=1733,processing=10",
+        "progress": "ledger_chunks=1532 vectors=1532",
+        "workerRssMb": 91.4,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 1918963,
+        "elapsedSec": 1919,
+        "indexStatus": "indexing=1,pending=260,ready=739",
+        "outbox": "pending=257,processed=1739,processing=4",
+        "progress": "ledger_chunks=1549 vectors=1549",
+        "workerRssMb": 91.6,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 1941113,
+        "elapsedSec": 1941,
+        "indexStatus": "indexing=1,pending=254,ready=745",
+        "outbox": "pending=247,processed=1745,processing=8",
+        "progress": "ledger_chunks=1565 vectors=1565",
+        "workerRssMb": 91.7,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 1963413,
+        "elapsedSec": 1963,
+        "indexStatus": "indexing=1,pending=247,ready=752",
+        "outbox": "pending=247,processed=1752,processing=1",
+        "progress": "ledger_chunks=1583 vectors=1583",
+        "workerRssMb": 91.7,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 1985595,
+        "elapsedSec": 1986,
+        "indexStatus": "indexing=1,pending=242,ready=757",
+        "outbox": "pending=237,processed=1757,processing=6",
+        "progress": "ledger_chunks=1598 vectors=1598",
+        "workerRssMb": 91.7,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 2007812,
+        "elapsedSec": 2008,
+        "indexStatus": "indexing=1,pending=236,ready=763",
+        "outbox": "pending=227,processed=1763,processing=10",
+        "progress": "ledger_chunks=1613 vectors=1613",
+        "workerRssMb": 91.7,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 2030129,
+        "elapsedSec": 2030,
+        "indexStatus": "indexing=1,pending=230,ready=769",
+        "outbox": "pending=227,processed=1769,processing=4",
+        "progress": "ledger_chunks=1629 vectors=1629",
+        "workerRssMb": 91.9,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 2052313,
+        "elapsedSec": 2052,
+        "indexStatus": "indexing=1,pending=224,ready=775",
+        "outbox": "pending=217,processed=1775,processing=8",
+        "progress": "ledger_chunks=1645 vectors=1645",
+        "workerRssMb": 91.9,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 2074580,
+        "elapsedSec": 2075,
+        "indexStatus": "indexing=1,pending=218,ready=781",
+        "outbox": "pending=217,processed=1781,processing=2",
+        "progress": "ledger_chunks=1663 vectors=1663",
+        "workerRssMb": 91.9,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 2096831,
+        "elapsedSec": 2097,
+        "indexStatus": "indexing=1,pending=213,ready=786",
+        "outbox": "pending=207,processed=1786,processing=7",
+        "progress": "ledger_chunks=1676 vectors=1676",
+        "workerRssMb": 91.9,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 2118997,
+        "elapsedSec": 2119,
+        "indexStatus": "pending=206,ready=794",
+        "outbox": "pending=197,processed=1794,processing=9",
+        "progress": "ledger_chunks=1695 vectors=1695",
+        "workerRssMb": 91.9,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 2141030,
+        "elapsedSec": 2141,
+        "indexStatus": "indexing=1,pending=197,ready=802",
+        "outbox": "pending=197,processed=1802,processing=1",
+        "progress": "ledger_chunks=1713 vectors=1713",
+        "workerRssMb": 92.2,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 2163163,
+        "elapsedSec": 2163,
+        "indexStatus": "indexing=1,pending=180,ready=819",
+        "outbox": "pending=177,processed=1819,processing=4",
+        "progress": "ledger_chunks=1733 vectors=1733",
+        "workerRssMb": 91.6,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 2184997,
+        "elapsedSec": 2185,
+        "indexStatus": "indexing=1,pending=158,ready=841",
+        "outbox": "pending=157,processed=1841,processing=2",
+        "progress": "ledger_chunks=1756 vectors=1756",
+        "workerRssMb": 91.7,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 2207017,
+        "elapsedSec": 2207,
+        "indexStatus": "pending=137,ready=863",
+        "outbox": "pending=137,processed=1863",
+        "progress": "ledger_chunks=1777 vectors=1777",
+        "workerRssMb": 91.7,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 2228547,
+        "elapsedSec": 2229,
+        "indexStatus": "indexing=1,pending=116,ready=883",
+        "outbox": "pending=107,processed=1883,processing=10",
+        "progress": "ledger_chunks=1797 vectors=1797",
+        "workerRssMb": 91.5,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 2250514,
+        "elapsedSec": 2251,
+        "indexStatus": "indexing=1,pending=95,ready=904",
+        "outbox": "pending=87,processed=1905,processing=8",
+        "progress": "ledger_chunks=1819 vectors=1819",
+        "workerRssMb": 91.8,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 2272281,
+        "elapsedSec": 2272,
+        "indexStatus": "indexing=1,pending=72,ready=927",
+        "outbox": "pending=67,processed=1927,processing=6",
+        "progress": "ledger_chunks=1841 vectors=1841",
+        "workerRssMb": 91.8,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 2294381,
+        "elapsedSec": 2294,
+        "indexStatus": "indexing=1,pending=50,ready=949",
+        "outbox": "pending=47,processed=1949,processing=4",
+        "progress": "ledger_chunks=1863 vectors=1863",
+        "workerRssMb": 91.2,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 2316448,
+        "elapsedSec": 2316,
+        "indexStatus": "indexing=1,pending=29,ready=970",
+        "outbox": "pending=27,processed=1971,processing=2",
+        "progress": "ledger_chunks=1885 vectors=1885",
+        "workerRssMb": 91.4,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 2338415,
+        "elapsedSec": 2338,
+        "indexStatus": "indexing=1,pending=7,ready=992",
+        "outbox": "pending=7,processed=1993",
+        "progress": "ledger_chunks=1907 vectors=1907",
+        "workerRssMb": 91.5,
+        "apiRssMb": 99.5
+      },
+      {
+        "elapsedMs": 2359897,
+        "elapsedSec": 2360,
+        "indexStatus": "ready=1000",
+        "outbox": "processed=2000",
+        "progress": "ledger_chunks=1914 vectors=1914",
+        "workerRssMb": 91.5,
+        "apiRssMb": 99.5
+      }
+    ],
+    "readyAtQueueStart": 22,
+    "entriesIndexedInWindow": 978,
+    "rateNote": "分母是本轮窗口内真正需要索引的条目（发布 1000 条减去入队即刻已 ready 的 22 条）；按发布总数除以整段用时会得到 25.4 条/分钟，那是偏高的读法。"
+  },
+  "indexDetail": {
+    "canon": "压测嵌入 ledger/bge-m3:latest dim=1024 chunks=2 | 压测嵌入 ledger/bge-m3:latest dim=1024 chunks=2 | 压测嵌入 ledger/bge-m3:latest dim=1024 chunks=2",
+    "ledger": "压测嵌入 ledger/bge-m3:latest dim=1024 chunks=2 | 压测嵌入 ledger/bge-m3:latest dim=1024 chunks=2 | 压测嵌入 ledger/bge-m3:latest dim=1024 chunks=2"
+  },
+  "chunkStats": {
+    "canon": "chunks_per_chapter_avg=2.00 max=2 min=2",
+    "ledger": "entries_with_chunks=1000 avg=1.91 max=4 min=1",
+    "ledgerByKind": "character: avg=2.71 min=2 max=4 entries=300 | setting: avg=1.80 min=1 max=2 entries=500 | foreshadowing: avg=1.00 min=1 max=1 entries=200"
+  },
+  "ledgerCoverage": "ledger_chunks=1914 vector_chunks=1914",
+  "ledgerStatusDetail": "ready=1000",
+  "ledgerRetryDetail": "attempts_max=1 with_next_retry=0 last_error_kinds=null",
+  "calls": {
+    "indexPhase": "n=2000 ok=2000 failed=0 blocked=0 prompt_tokens=1273040 cost=0.0000 CNY latency_med=2094",
+    "queryPhase": "n=15 ok=15 failed=0 blocked=0 prompt_tokens=147 cost=0.0000 CNY latency_med=202",
+    "queryPhaseAtDrainEnd": "n=0 ok=0 failed=0 blocked=0 prompt_tokens=0 cost=0 - latency_med=null",
+    "providerTotal": "n=2015 ok=2015",
+    "note": "indexPhase 在检索开始前取样，含正典与账本两侧的嵌入调用（按同一 purpose 记账，未分侧）；queryPhase 按每次混合检索的查询向量记账。"
+  },
+  "retrieval": [
+    {
+      "mode": "lexical",
+      "label": "设定名称",
+      "expect": "ledger",
+      "queryChars": 9,
+      "medianMs": 453,
+      "samples": [
+        972,
+        444,
+        453
+      ],
+      "canonResults": 0,
+      "canonTopChapter": null,
+      "ledgerResults": 8,
+      "ledgerTopKind": "setting",
+      "ledgerTopName": "压测设定 0007",
+      "ledgerTopLexicalScore": 1.4,
+      "ledgerTopVectorScore": null,
+      "ledgerTopRrfScore": 0.016393,
+      "modeUsed": "lexical",
+      "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+      "ledgerReason": null,
+      "coverage": {
+        "totalCanonChapters": 1000,
+        "ready": 1000,
+        "chunks": 2000,
+        "vectorChunks": 2000,
+        "vectorModel": "bge-m3:latest"
+      },
+      "ledgerCoverage": {
+        "activeEntries": 1000,
+        "indexedEntries": 1000,
+        "chunks": 1914,
+        "vectorChunks": 1914,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 5789
+    },
+    {
+      "mode": "lexical",
+      "label": "角色别名",
+      "expect": "ledger",
+      "queryChars": 8,
+      "medianMs": 437,
+      "samples": [
+        441,
+        428,
+        437
+      ],
+      "canonResults": 0,
+      "canonTopChapter": null,
+      "ledgerResults": 8,
+      "ledgerTopKind": "character",
+      "ledgerTopName": "压测角色 0003",
+      "ledgerTopLexicalScore": 0.9,
+      "ledgerTopVectorScore": null,
+      "ledgerTopRrfScore": 0.016393,
+      "modeUsed": "lexical",
+      "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+      "ledgerReason": null,
+      "coverage": {
+        "totalCanonChapters": 1000,
+        "ready": 1000,
+        "chunks": 2000,
+        "vectorChunks": 2000,
+        "vectorModel": "bge-m3:latest"
+      },
+      "ledgerCoverage": {
+        "activeEntries": 1000,
+        "indexedEntries": 1000,
+        "chunks": 1914,
+        "vectorChunks": 1914,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 5808
+    },
+    {
+      "mode": "lexical",
+      "label": "状态字段",
+      "expect": "ledger",
+      "queryChars": 10,
+      "medianMs": 490,
+      "samples": [
+        502,
+        490,
+        487
+      ],
+      "canonResults": 8,
+      "canonTopChapter": 1,
+      "ledgerResults": 8,
+      "ledgerTopKind": "character",
+      "ledgerTopName": "压测角色 0001",
+      "ledgerTopLexicalScore": 2.2,
+      "ledgerTopVectorScore": null,
+      "ledgerTopRrfScore": 0.016393,
+      "modeUsed": "lexical",
+      "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+      "ledgerReason": null,
+      "coverage": {
+        "totalCanonChapters": 1000,
+        "ready": 1000,
+        "chunks": 2000,
+        "vectorChunks": 2000,
+        "vectorModel": "bge-m3:latest"
+      },
+      "ledgerCoverage": {
+        "activeEntries": 1000,
+        "indexedEntries": 1000,
+        "chunks": 1914,
+        "vectorChunks": 1914,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 9934
+    },
+    {
+      "mode": "lexical",
+      "label": "正文短语（正典与账本共有）",
+      "expect": "both",
+      "queryChars": 7,
+      "medianMs": 503,
+      "samples": [
+        495,
+        503,
+        521
+      ],
+      "canonResults": 8,
+      "canonTopChapter": 1,
+      "ledgerResults": 8,
+      "ledgerTopKind": "setting",
+      "ledgerTopName": "压测设定 0008",
+      "ledgerTopLexicalScore": 2.9,
+      "ledgerTopVectorScore": null,
+      "ledgerTopRrfScore": 0.016393,
+      "modeUsed": "lexical",
+      "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+      "ledgerReason": null,
+      "coverage": {
+        "totalCanonChapters": 1000,
+        "ready": 1000,
+        "chunks": 2000,
+        "vectorChunks": 2000,
+        "vectorModel": "bge-m3:latest"
+      },
+      "ledgerCoverage": {
+        "activeEntries": 1000,
+        "indexedEntries": 1000,
+        "chunks": 1914,
+        "vectorChunks": 1914,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 9917
+    },
+    {
+      "mode": "lexical",
+      "label": "域外对照",
+      "expect": "none",
+      "queryChars": 11,
+      "medianMs": 236,
+      "samples": [
+        233,
+        244,
+        236
+      ],
+      "canonResults": 0,
+      "canonTopChapter": null,
+      "ledgerResults": 0,
+      "ledgerTopKind": null,
+      "ledgerTopName": null,
+      "ledgerTopLexicalScore": null,
+      "ledgerTopVectorScore": null,
+      "ledgerTopRrfScore": null,
+      "modeUsed": "lexical",
+      "semanticReason": "诊断模式：已强制词法检索，未调用嵌入服务",
+      "ledgerReason": null,
+      "coverage": {
+        "totalCanonChapters": 1000,
+        "ready": 1000,
+        "chunks": 2000,
+        "vectorChunks": 2000,
+        "vectorModel": "bge-m3:latest"
+      },
+      "ledgerCoverage": {
+        "activeEntries": 1000,
+        "indexedEntries": 1000,
+        "chunks": 1914,
+        "vectorChunks": 1914,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 438
+    },
+    {
+      "mode": "auto",
+      "label": "设定名称",
+      "expect": "ledger",
+      "queryChars": 9,
+      "medianMs": 481,
+      "samples": [
+        723,
+        481,
+        449
+      ],
+      "canonResults": 8,
+      "canonTopChapter": 257,
+      "ledgerResults": 8,
+      "ledgerTopKind": "setting",
+      "ledgerTopName": "压测设定 0007",
+      "ledgerTopLexicalScore": 1.4,
+      "ledgerTopVectorScore": 0.654776,
+      "ledgerTopRrfScore": 0.032787,
+      "modeUsed": "hybrid",
+      "semanticReason": null,
+      "ledgerReason": null,
+      "coverage": {
+        "totalCanonChapters": 1000,
+        "ready": 1000,
+        "chunks": 2000,
+        "vectorChunks": 2000,
+        "vectorModel": "bge-m3:latest"
+      },
+      "ledgerCoverage": {
+        "activeEntries": 1000,
+        "indexedEntries": 1000,
+        "chunks": 1914,
+        "vectorChunks": 1914,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 9969
+    },
+    {
+      "mode": "auto",
+      "label": "角色别名",
+      "expect": "ledger",
+      "queryChars": 8,
+      "medianMs": 468,
+      "samples": [
+        484,
+        457,
+        468
+      ],
+      "canonResults": 8,
+      "canonTopChapter": 721,
+      "ledgerResults": 8,
+      "ledgerTopKind": "character",
+      "ledgerTopName": "压测角色 0021",
+      "ledgerTopLexicalScore": 0.9,
+      "ledgerTopVectorScore": 0.658045,
+      "ledgerTopRrfScore": 0.032522,
+      "modeUsed": "hybrid",
+      "semanticReason": null,
+      "ledgerReason": null,
+      "coverage": {
+        "totalCanonChapters": 1000,
+        "ready": 1000,
+        "chunks": 2000,
+        "vectorChunks": 2000,
+        "vectorModel": "bge-m3:latest"
+      },
+      "ledgerCoverage": {
+        "activeEntries": 1000,
+        "indexedEntries": 1000,
+        "chunks": 1914,
+        "vectorChunks": 1914,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 9995
+    },
+    {
+      "mode": "auto",
+      "label": "状态字段",
+      "expect": "ledger",
+      "queryChars": 10,
+      "medianMs": 531,
+      "samples": [
+        531,
+        555,
+        520
+      ],
+      "canonResults": 8,
+      "canonTopChapter": 6,
+      "ledgerResults": 8,
+      "ledgerTopKind": "character",
+      "ledgerTopName": "压测角色 0001",
+      "ledgerTopLexicalScore": 2.2,
+      "ledgerTopVectorScore": null,
+      "ledgerTopRrfScore": 0.016393,
+      "modeUsed": "hybrid",
+      "semanticReason": null,
+      "ledgerReason": null,
+      "coverage": {
+        "totalCanonChapters": 1000,
+        "ready": 1000,
+        "chunks": 2000,
+        "vectorChunks": 2000,
+        "vectorModel": "bge-m3:latest"
+      },
+      "ledgerCoverage": {
+        "activeEntries": 1000,
+        "indexedEntries": 1000,
+        "chunks": 1914,
+        "vectorChunks": 1914,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 9962
+    },
+    {
+      "mode": "auto",
+      "label": "正文短语（正典与账本共有）",
+      "expect": "both",
+      "queryChars": 7,
+      "medianMs": 518,
+      "samples": [
+        507,
+        525,
+        518
+      ],
+      "canonResults": 8,
+      "canonTopChapter": 6,
+      "ledgerResults": 8,
+      "ledgerTopKind": "setting",
+      "ledgerTopName": "压测设定 0088",
+      "ledgerTopLexicalScore": 2.9,
+      "ledgerTopVectorScore": 0.706264,
+      "ledgerTopRrfScore": 0.029418,
+      "modeUsed": "hybrid",
+      "semanticReason": null,
+      "ledgerReason": null,
+      "coverage": {
+        "totalCanonChapters": 1000,
+        "ready": 1000,
+        "chunks": 2000,
+        "vectorChunks": 2000,
+        "vectorModel": "bge-m3:latest"
+      },
+      "ledgerCoverage": {
+        "activeEntries": 1000,
+        "indexedEntries": 1000,
+        "chunks": 1914,
+        "vectorChunks": 1914,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 9943
+    },
+    {
+      "mode": "auto",
+      "label": "域外对照",
+      "expect": "none",
+      "queryChars": 11,
+      "medianMs": 295,
+      "samples": [
+        298,
+        295,
+        284
+      ],
+      "canonResults": 0,
+      "canonTopChapter": null,
+      "ledgerResults": 0,
+      "ledgerTopKind": null,
+      "ledgerTopName": null,
+      "ledgerTopLexicalScore": null,
+      "ledgerTopVectorScore": null,
+      "ledgerTopRrfScore": null,
+      "modeUsed": "lexical",
+      "semanticReason": "向量最高相似度 0.327 低于阈值 0.400，本次仅用词法检索",
+      "ledgerReason": "账本向量最高相似度低于阈值 0.400，本次账本仅用词法检索",
+      "coverage": {
+        "totalCanonChapters": 1000,
+        "ready": 1000,
+        "chunks": 2000,
+        "vectorChunks": 2000,
+        "vectorModel": "bge-m3:latest"
+      },
+      "ledgerCoverage": {
+        "activeEntries": 1000,
+        "indexedEntries": 1000,
+        "chunks": 1914,
+        "vectorChunks": 1914,
+        "vectorModel": "bge-m3:latest"
+      },
+      "responseBytes": 479
+    }
+  ],
+  "countsAfterRun": {
+    "works": 2,
+    "chapters": 1002,
+    "canon_versions": 1001,
+    "canon_current": 1001,
+    "canon_chunks": 2000,
+    "chunk_embeddings": 2000,
+    "index_status": 1001,
+    "ledger_entries": 1000,
+    "ledger_entry_versions": 1000,
+    "ledger_entry_aliases": 1000,
+    "ledger_chunks": 1914,
+    "ledger_chunk_embeddings": 1914,
+    "ledger_index_status": 1000,
+    "chapter_ledger_links": 0,
+    "chapter_metadata": 1001,
+    "outbox": 2000,
+    "model_calls": 2015,
+    "providers": 1,
+    "sessions": 1,
+    "events": 3003,
+    "audit": 3121
+  },
+  "cleanupNote": "临时服务商的 model_calls 共 2015 条（报告 calls.providerTotal = n=2015 ok=2015，两者应一致），与服务商行一并按 id 删除；真实用量与耗时已先写入本报告 calls。",
+  "workspaceCounters": {
+    "before": {
+      "settingsVersion": 1,
+      "ledgerVersion": 23
+    },
+    "afterPublishes": {
+      "settingsVersion": 501,
+      "ledgerVersion": 523
+    },
+    "restoredTo": {
+      "settingsVersion": 1,
+      "ledgerVersion": 23
+    },
+    "note": "发布递增的工作区版本计数不在 COUNTS 里；清理后显式还原为压测前的值并留痕。"
+  },
+  "countsAfterCleanup": {
+    "works": 1,
+    "chapters": 2,
+    "canon_versions": 1,
+    "canon_current": 1,
+    "canon_chunks": 0,
+    "chunk_embeddings": 0,
+    "index_status": 1,
+    "ledger_entries": 0,
+    "ledger_entry_versions": 0,
+    "ledger_entry_aliases": 0,
+    "ledger_chunks": 0,
+    "ledger_chunk_embeddings": 0,
+    "ledger_index_status": 0,
+    "chapter_ledger_links": 0,
+    "chapter_metadata": 1,
+    "outbox": 0,
+    "model_calls": 0,
+    "providers": 0,
+    "sessions": 0,
+    "events": 3,
+    "audit": 119
+  },
+  "cleanupDrift": {},
+  "topology": {
+    "claimBatchCap": 10,
+    "maxProcessingObserved": {
+      "canon": 989,
+      "ledger": 10
+    },
+    "singleWorkerProvable": false,
+    "preflightCaptured": false,
+    "source": "对本报告自带 samples[].outbox 的事后复算；samples 原始值未改动。",
+    "note": "正典阶段采样里同时在处理的任务最多 989 条，而单个实例一次 claimOutbox 只领 10 条并逐条 await（同机小样本实测：单实例时该值饱和在 10 以内），所以正典阶段必然有约 99 个并发领任务的 worker，本轮的 28 条/分钟是多实例聚合值、不是单 worker 速率。账本阶段最多 10 条=刚好等于领用上限，与单实例一致；但本轮没有采压测前的实例形状，只能说是\"与单实例一致\"而非\"已证明只有一个实例\"。"
+  },
+  "reanalysis": {
+    "at": "2026-10-22T19:32:51.988Z",
+    "corrected": [
+      "ledgerDrain.entriesPerMinute：25.4 → 24.87（扣除入队即刻已 ready 的 22 条）",
+      "caveats[3]：原文把两轮都写成\"单个 worker\"，与自带 samples 矛盾，已按实测形状改写",
+      "新增 topology / ledgerDrain.rateNote / canonDrain.chaptersPerMinute 两位小数"
+    ],
+    "originalCaveat3": "单台机器上的单个 worker，POLL_MS 之间的采样是瞬时值而不是持续吞吐；两段排空串行在同一进程上。",
+    "unchanged": "samples、chunkStats、calls、retrieval、countsAfterCleanup、workspaceCounters 等原始读数未改动。"
+  }
+}

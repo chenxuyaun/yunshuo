@@ -118,10 +118,13 @@ try {
       ON CONFLICT (chapter_id) DO NOTHING
     `;
 
+    // 演示章可能在这一轮之后被人继续修订并提交过新版本：无条件把指针写回导入版本
+    // 会静默撤销那次提交，所以只在该章还停在导入版本（或还没指针）时才改写。
     await tx`
       UPDATE chapters
       SET status = 'canon', current_version_id = ${ids.importedVersion}, updated_at = now()
       WHERE id = ${ids.chapterImported}
+        AND (current_version_id IS NULL OR current_version_id = ${ids.importedVersion})
     `;
 
     await tx`
@@ -136,22 +139,32 @@ try {
       ON CONFLICT (chapter_id) DO NOTHING
     `;
 
-    await tx`
-      INSERT INTO events (workspace_id, aggregate_type, aggregate_id, event_type, payload, actor_id)
-      VALUES (
-        ${ids.workspace}, 'chapter', ${ids.chapterImported}, 'chapter.imported',
-        ${tx.json(jsonValue({ versionId: ids.importedVersion, source: 'import' }))},
-        ${ids.owner}
-      )
+    // events 与 audit_log 都是只追加表，没有可 ON CONFLICT 的唯一键，所以先查后写：
+    // 否则每重跑一次种子，就凭空多出一条导入事件与一条导入审计。
+    const importedHistory = await tx`
+      SELECT 1 FROM events
+      WHERE aggregate_id = ${ids.chapterImported} AND event_type = 'chapter.imported'
+      LIMIT 1
     `;
 
-    await tx`
-      INSERT INTO audit_log (workspace_id, actor_id, actor_type, role, action, object_type, object_id, result, metadata)
-      VALUES (
-        ${ids.workspace}, ${ids.owner}, 'human', 'owner', 'chapter.import', 'chapter', ${ids.chapterImported},
-        'success', ${tx.json(jsonValue({ versionId: ids.importedVersion, evidence: 'not_evaluated' }))}
-      )
-    `;
+    if (importedHistory.length === 0) {
+      await tx`
+        INSERT INTO events (workspace_id, aggregate_type, aggregate_id, event_type, payload, actor_id)
+        VALUES (
+          ${ids.workspace}, 'chapter', ${ids.chapterImported}, 'chapter.imported',
+          ${tx.json(jsonValue({ versionId: ids.importedVersion, source: 'import' }))},
+          ${ids.owner}
+        )
+      `;
+
+      await tx`
+        INSERT INTO audit_log (workspace_id, actor_id, actor_type, role, action, object_type, object_id, result, metadata)
+        VALUES (
+          ${ids.workspace}, ${ids.owner}, 'human', 'owner', 'chapter.import', 'chapter', ${ids.chapterImported},
+          'success', ${tx.json(jsonValue({ versionId: ids.importedVersion, evidence: 'not_evaluated' }))}
+        )
+      `;
+    }
   });
 
   console.log('seed complete');

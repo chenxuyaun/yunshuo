@@ -192,6 +192,8 @@ suite('M5-B 计费：归属报表、工作区预算、价表与角色边界', ()
       requestedMaxTokens,
       chapterId,
       proposalId,
+      suggestionId: null,
+      purpose: 'chapter_proposal',
       jobId: null,
       actorId: author.me.user.id,
       attemptNo: 1,
@@ -582,5 +584,42 @@ suite('M5-B 计费：归属报表、工作区预算、价表与角色边界', ()
     expect(rows).toHaveLength(1);
     expect(rows[0]?.reserved_cost).toBeNull();
     expect(rows[0]?.reserved_currency).toBeNull();
+  });
+
+  it('未配置预算时也会清算超时未完成的调用，不让中断永远显示在途', async () => {
+    await clearCalls();
+    await setBudget(null);
+
+    const staleId = randomUUID();
+    await sql`
+      INSERT INTO model_calls (
+        id, workspace_id, provider_id, model, status, actor_id, purpose, attempt_no, created_at
+      )
+      VALUES (
+        ${staleId}, ${workspaceId}, ${chatProviderId}, 'stub-model', 'streaming',
+        ${author.me.user.id}, 'chapter_proposal', 1, now() - interval '20 minutes'
+      )
+    `;
+
+    const body = await report(owner);
+    expect(body.budgetUsage.state).toBe('not_configured');
+    const stale = await sql<{ status: string; error_code: string | null; completed_at: Date | null }[]>`
+      SELECT status, error_code, completed_at FROM model_calls WHERE id = ${staleId}
+    `;
+    expect(stale[0]?.status).toBe('failed');
+    expect(stale[0]?.error_code).toBe('CALL_STALE');
+    expect(stale[0]?.completed_at).not.toBeNull();
+
+    // 清算只针对超时行：刚预留的在途调用不能被改成失败。
+    const fresh = await reserve(randomUUID(), 1000, 800);
+    expect(fresh.ok).toBe(true);
+    await report(owner);
+    const streaming = await sql<{ count: number }[]>`
+      SELECT count(*)::int AS count FROM model_calls
+      WHERE workspace_id = ${workspaceId} AND status = 'streaming'
+    `;
+    expect(streaming[0]?.count).toBe(1);
+
+    await clearCalls();
   });
 });

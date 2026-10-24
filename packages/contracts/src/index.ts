@@ -1543,6 +1543,137 @@ export interface ChapterLedgerLinksResponse {
   note: string;
 }
 
+export const LEDGER_SUGGESTION_KINDS = ['character_state', 'foreshadowing_state'] as const;
+
+export type LedgerSuggestionKind = (typeof LEDGER_SUGGESTION_KINDS)[number];
+
+export const LEDGER_SUGGESTION_STATUSES = [
+  'generating',
+  'ready',
+  'failed',
+  'applying',
+  'accepted',
+  'rejected',
+] as const;
+
+export type LedgerSuggestionStatus = (typeof LEDGER_SUGGESTION_STATUSES)[number];
+
+export const ledgerCharacterStateSuggestionSchema = z.object({
+  kind: z.literal('character_state'),
+  asOfChapterNumber: z.number().int().min(1).max(99_999),
+  life: z.enum(LEDGER_CHARACTER_LIFE_STATES),
+  location: z.string().trim().max(200).default(''),
+  knowledge: z.string().trim().max(5000).default(''),
+  possessions: z.string().trim().max(2000).default(''),
+  relationshipChanges: z.string().trim().max(2000).default(''),
+});
+
+export const ledgerForeshadowingStateSuggestionSchema = z
+  .object({
+    kind: z.literal('foreshadowing_state'),
+    state: z.enum(['reinforced', 'paid_off', 'abandoned']),
+    payoffChapterNumber: z.number().int().min(1).max(99_999).nullable().default(null),
+    resolutionNote: z.string().trim().max(5000).default(''),
+  })
+  .superRefine((value, ctx) => {
+    if (value.state === 'paid_off' && value.payoffChapterNumber === null) {
+      ctx.addIssue({
+        code: 'custom',
+        message: '建议标记为已回收时必须给出回收章节',
+        path: ['payoffChapterNumber'],
+      });
+    }
+    if (value.state === 'paid_off' && value.resolutionNote.trim().length < 4) {
+      ctx.addIssue({
+        code: 'custom',
+        message: '建议标记为已回收时必须填写至少 4 个字的回收说明',
+        path: ['resolutionNote'],
+      });
+    }
+    if (value.state === 'abandoned' && value.resolutionNote.trim().length < 4) {
+      ctx.addIssue({
+        code: 'custom',
+        message: '建议标记为已放弃时必须填写至少 4 个字的说明',
+        path: ['resolutionNote'],
+      });
+    }
+  });
+
+export const ledgerSuggestionProposalSchema = z.discriminatedUnion('kind', [
+  ledgerCharacterStateSuggestionSchema,
+  ledgerForeshadowingStateSuggestionSchema,
+]);
+
+export type LedgerSuggestionProposal = z.infer<typeof ledgerSuggestionProposalSchema>;
+
+export const createLedgerSuggestionSchema = z.object({
+  basisChapterId: z.string().uuid(),
+  instruction: z.string().trim().max(500, '补充说明不能超过 500 字').optional().default(''),
+});
+
+export type CreateLedgerSuggestionInput = z.infer<typeof createLedgerSuggestionSchema>;
+
+export const decideLedgerSuggestionSchema = z.object({
+  note: z.string().trim().max(1000, '确认说明不能超过 1000 字').optional().default(''),
+});
+
+export type DecideLedgerSuggestionInput = z.infer<typeof decideLedgerSuggestionSchema>;
+
+// 拒绝是不可重开的决定，只在界面拦空说明不够：直接调用接口也能留下没有理由的拒绝。
+export const rejectLedgerSuggestionSchema = z.object({
+  note: z
+    .string()
+    .trim()
+    .min(2, '拒绝原因至少 2 个字')
+    .max(1000, '拒绝原因不能超过 1000 字'),
+});
+
+export type RejectLedgerSuggestionInput = z.infer<typeof rejectLedgerSuggestionSchema>;
+
+export interface LedgerSuggestionEvidenceView {
+  type: 'chapter' | 'ledger_version';
+  label: string;
+  detail: string | null;
+  truncated: boolean;
+}
+
+export interface LedgerSuggestionView {
+  id: string;
+  entryId: string;
+  entryName: string;
+  entryKind: LedgerEntryKind;
+  kind: LedgerSuggestionKind;
+  status: LedgerSuggestionStatus;
+  baseVersionNo: number | null;
+  basisChapter: LedgerChapterRef | null;
+  instruction: string;
+  providerName: string;
+  model: string;
+  promptVersion: string;
+  proposal: LedgerSuggestionProposal | null;
+  rationale: string;
+  evidence: LedgerSuggestionEvidenceView[];
+  usage: AiProposalUsageView;
+  cost: number | null;
+  costCurrency: PriceCurrency | null;
+  latencyMs: number | null;
+  attempts: number;
+  errorCode: string | null;
+  errorMessage: string | null;
+  createdByName: string | null;
+  createdAt: string;
+  completedAt: string | null;
+  decidedByName: string | null;
+  decidedAt: string | null;
+  decisionNote: string;
+  resultDraftVersionNo: number | null;
+}
+
+export interface LedgerSuggestionListResponse {
+  suggestions: LedgerSuggestionView[];
+  note: string;
+}
+
 export interface LedgerEntryVersionListResponse {
   versions: LedgerEntryVersionView[];
 }

@@ -55,7 +55,7 @@ const FORESHADOWING_TRANSITIONS: Record<
   abandoned: ['abandoned'],
 };
 
-const FORESHADOWING_STATE_LABELS: Record<LedgerForeshadowingState, string> = {
+export const FORESHADOWING_STATE_LABELS: Record<LedgerForeshadowingState, string> = {
   planted: '已埋设',
   reinforced: '已强化',
   paid_off: '已回收',
@@ -820,6 +820,7 @@ export async function saveLedgerDraft(
   auth: AuthContext,
   entryId: string,
   input: UpdateLedgerDraftInput,
+  options?: { expectedCurrentVersionId?: string | null },
 ): Promise<LedgerEntryDetail> {
   assertCanWriteLedger(auth.role);
   return sql.begin(async (tx) => {
@@ -828,6 +829,16 @@ export async function saveLedgerDraft(
     if (!entry) throw notFound('LEDGER_ENTRY_NOT_FOUND', '账本条目不存在或不属于当前工作区');
     if (entry.status === 'archived') {
       throw conflict('LEDGER_ENTRY_ARCHIVED', '已归档条目不能编辑；归档不可撤销，请新建条目重新登记');
+    }
+    if (
+      options?.expectedCurrentVersionId !== undefined &&
+      options.expectedCurrentVersionId !== entry.current_version_id
+    ) {
+      throw conflict(
+        'LEDGER_CURRENT_VERSION_CHANGED',
+        '条目在本次写入前已发布新版本；草稿未写入，请基于新版本重新编辑',
+        { currentVersionId: entry.current_version_id },
+      );
     }
     if (entry.draft_version_id !== input.expectedDraftVersionId) {
       throw conflict(

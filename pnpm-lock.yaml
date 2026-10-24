@@ -109,6 +109,9 @@ importers:
       vite:
         specifier: ^7.1.0
         version: 7.3.7(@types/node@24.19.2)(tsx@4.23.15)
+      vitest:
+        specifier: ^3.2.7
+        version: 3.2.7(@types/node@24.19.2)(tsx@4.23.15)
 
   apps/worker:
     dependencies:
