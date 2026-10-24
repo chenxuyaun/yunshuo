@@ -93,6 +93,8 @@ describe('开发登录开关与生产启动不变量', () => {
       DEV_AUTH: '1',
       SESSION_SECRET: 'session-secret-for-test',
       MODEL_KEY_SECRET: 'model-key-secret-for-test',
+      // CI 全局把 MAIL_MODE 设成 memory；生产模拟必须显式钉一个合法值，否则先被邮箱守卫拒掉。
+      MAIL_MODE: 'off',
     });
     const { env } = await freshEnv();
     // M5-A 复审修过的那条：README 写"开发登录仅限本机、生产强制关闭"，靠的就是这个
