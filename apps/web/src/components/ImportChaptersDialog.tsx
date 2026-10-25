@@ -14,7 +14,7 @@ interface ParsedChapter {
   content: string;
 }
 
-interface ParseResult {
+export interface ParseResult {
   chapters: ParsedChapter[];
   preambleLines: number;
   error: string | null;
@@ -22,7 +22,7 @@ interface ParseResult {
 
 const HEADING_PATTERN = /^\s{0,3}#{1,6}\s*第\s*([0-9]+)\s*章\s*(.*?)\s*$/;
 
-function parseManuscript(text: string): ParseResult {
+export function parseManuscript(text: string): ParseResult {
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
   const chapters: ParsedChapter[] = [];
   let preambleLines = 0;
