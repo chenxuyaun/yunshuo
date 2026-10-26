@@ -8,10 +8,13 @@ import type {
 } from '@yunshuo/contracts';
 import { closeDb, sql } from '@yunshuo/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { AuthContext } from './auth.js';
+import { AppError } from './errors.js';
 import { buildServer } from './server.js';
 import {
   currentMonthRange,
   reserveGenerationCall,
+  updateWorkspaceBudget,
   workspaceBudgetPreflight,
 } from './services/billing-service.js';
 
@@ -304,6 +307,39 @@ suite('M5-B 计费：归属报表、工作区预算、价表与角色边界', ()
     `;
     expect(audits[0]?.metadata.previousMonthlyLimit).toBeNull();
     expect(audits[0]?.metadata.monthlyLimit).toBe(100);
+  });
+
+  it('会话指向的工作区已不存在时，改预算以 404 WORKSPACE_NOT_FOUND 收口且不落库', async () => {
+    // 路由层解析 auth 时工作区必然存在；这条守的是会话存活期间工作区被删除的窗口：
+    // 直接调用服务层，用真实工作区之外的 id 复现 SELECT ... FOR UPDATE 查不到行的分支。
+    const before = await sql<{ monthly_limit: string; currency: string }[]>`
+      SELECT monthly_limit, currency FROM workspace_budgets WHERE workspace_id = ${workspaceId}
+    `;
+    const auditBefore = await sql<{ count: number }[]>`
+      SELECT count(*)::int AS count FROM audit_log
+      WHERE workspace_id = ${workspaceId} AND action = 'billing.budget.update'
+    `;
+    const staleAuth: AuthContext = {
+      ...billing.me,
+      workspace: { ...billing.me.workspace, id: randomUUID() },
+      sessionId: 'stale-workspace-session',
+    };
+    const attempt = updateWorkspaceBudget(staleAuth, { monthlyLimit: 5, currency: 'USD' });
+    await expect(attempt).rejects.toBeInstanceOf(AppError);
+    await expect(attempt).rejects.toMatchObject({
+      statusCode: 404,
+      code: 'WORKSPACE_NOT_FOUND',
+      message: '工作区不存在',
+    });
+    const after = await sql<{ monthly_limit: string; currency: string }[]>`
+      SELECT monthly_limit, currency FROM workspace_budgets WHERE workspace_id = ${workspaceId}
+    `;
+    expect(after).toEqual(before);
+    const auditAfter = await sql<{ count: number }[]>`
+      SELECT count(*)::int AS count FROM audit_log
+      WHERE workspace_id = ${workspaceId} AND action = 'billing.budget.update'
+    `;
+    expect(auditAfter[0]?.count).toBe(auditBefore[0]?.count);
   });
 
   it('计费管理员可改价表，但不能接触服务商端点与密钥', async () => {
