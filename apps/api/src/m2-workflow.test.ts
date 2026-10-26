@@ -17,6 +17,10 @@ import type {
 import { closeDb, jsonValue, sql } from '@yunshuo/db';
 import { countWords, sha256, type ChapterPlan } from '@yunshuo/domain';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { AuthContext } from './auth.js';
+import { AppError } from './errors.js';
+import { commitChapter } from './services/commit-service.js';
+import { rollbackChapter } from './services/rollback-service.js';
 
 const TEST_TITLE = 'M2 测试章节';
 const TEST_NUMBER = 9901;
@@ -236,6 +240,158 @@ suite('M2 修订 / 回滚 / 豁免', () => {
     expect(commit.status).toBe(200);
     expect(commit.body.alreadyCommitted).toBe(false);
     return { commit: commit.body, payload };
+  }
+
+  interface ChapterTrail {
+    versions: string;
+    commits: string;
+    events: string;
+    audits: string;
+    current: string | null;
+    status: string;
+  }
+
+  async function chapterTrail(): Promise<ChapterTrail> {
+    const rows = await sql<ChapterTrail[]>`
+      SELECT
+        (SELECT count(*)::text FROM canon_versions WHERE chapter_id = ${chapterId}) AS versions,
+        (SELECT count(*)::text FROM commits WHERE chapter_id = ${chapterId}) AS commits,
+        (SELECT count(*)::text FROM events
+           WHERE aggregate_type = 'chapter' AND aggregate_id = ${chapterId}) AS events,
+        (SELECT count(*)::text FROM audit_log
+           WHERE object_id = ${chapterId} OR metadata ->> 'chapterId' = ${chapterId}) AS audits,
+        (SELECT version_id::text FROM canon_current WHERE chapter_id = ${chapterId}) AS current,
+        (SELECT status FROM chapters WHERE id = ${chapterId}) AS status
+    `;
+    return rows[0]!;
+  }
+
+  async function waitForCondition(
+    predicate: () => Promise<boolean>,
+    timeoutMs: number,
+  ): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      if (await predicate()) return true;
+      if (Date.now() >= deadline) return false;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+
+  async function deadlockParkedOnChapter(holderPid: number): Promise<boolean> {
+    // 不依赖 query 文本或 wait_event 名字：本测试进程里除夹具之外只应有被注入的事务一个后端，
+    // 它要么在等锁，要么已经结束（后者由与 service 的竞速捕获）。夹具按 pid 排除。
+    const rows = await sql<{ count: string }[]>`
+      SELECT count(*) AS count
+      FROM pg_stat_activity
+      WHERE datname = current_database()
+        AND pid <> pg_backend_pid()
+        AND pid <> ${holderPid}
+        AND wait_event_type = 'Lock'
+    `;
+    return rows[0]!.count !== '0';
+  }
+
+  async function deadlockWaiterSnapshot(holderPid: number): Promise<string> {
+    const rows = await sql<
+      {
+        pid: number;
+        state: string | null;
+        wait_event_type: string | null;
+        wait_event: string | null;
+        query: string | null;
+      }[]
+    >`
+      SELECT pid, state, wait_event_type, wait_event, left(query, 60) AS query
+      FROM pg_stat_activity
+      WHERE datname = current_database()
+        AND pid <> pg_backend_pid()
+        AND pid <> ${holderPid}
+    `;
+    return JSON.stringify(rows);
+  }
+
+  /**
+   * 用真实行锁制造一次服务端死锁，返回服务 promise 的拒绝原因（原样）。
+   * 注入步骤：
+   *   ① 夹具先把章节行锁成 FOR NO KEY UPDATE——它与 loadChapter 的 FOR UPDATE OF c 冲突，
+   *      但不挡意图 INSERT 的外键检查（那是 FOR KEY SHARE，与 NO KEY UPDATE 相容）；
+   *      先锁后发请求，被注入的事务就不可能在夹具之前抢到章节行；
+   *   ② 事务进到 try 里、UPDATE 过意图行并停在章节行锁上之后，夹具去 FOR UPDATE
+   *      同一行意图（行锁在事务手里），等待成环；
+   *   ③ 夹具把 deadlock_timeout 调到 30 秒，事务用默认 1 秒且先进入等待，
+   *      所以由事务自己发现死锁、以 40P01 中止，catch 里写归因码后原样重抛。
+   */
+  async function driveChapterDeadlock(
+    idempotencyKey: string,
+    start: () => Promise<unknown>,
+  ): Promise<unknown> {
+    let signalChapterLocked: () => void = () => undefined;
+    const chapterLocked = new Promise<void>((resolve) => {
+      signalChapterLocked = resolve;
+    });
+    let signalIntentLock: () => void = () => undefined;
+    const intentLock = new Promise<void>((resolve) => {
+      signalIntentLock = resolve;
+    });
+    let holderPid: number | null = null;
+
+    let service: Promise<unknown> | null = null;
+    let holder: Promise<unknown> | null = null;
+    try {
+      holder = sql.begin(async (tx) => {
+        await tx`SET LOCAL deadlock_timeout = '30s'`;
+        await tx`SET LOCAL lock_timeout = '20s'`;
+        const pidRows = await tx<{ pid: number }[]>`SELECT pg_backend_pid() AS pid`;
+        holderPid = pidRows[0]!.pid;
+        await tx`SELECT id FROM chapters WHERE id = ${chapterId} FOR NO KEY UPDATE`;
+        signalChapterLocked();
+        await intentLock;
+        await tx`
+          SELECT id FROM commit_intents WHERE idempotency_key = ${idempotencyKey} FOR UPDATE
+        `;
+      });
+      holder.catch(() => undefined);
+      // 夹具若在拿章节行锁之前就炸了，race 直接抛真实错误，不耗到用例超时。
+      await Promise.race([chapterLocked, holder]);
+      const holderBackendPid = holderPid;
+      if (holderBackendPid === null) throw new Error('死锁夹具没有报出后端 pid');
+
+      service = start();
+      // 先把拒绝收进来，避免用例中途断言失败时留下未处理的拒绝。
+      const settled = service.then(
+        (value) => value,
+        (error: unknown) => error,
+      );
+
+      // 章节行已被夹具攥住，被注入的事务只可能停在等锁上；若它反而先结束，报出等待者快照。
+      const parkedOrEnded = await Promise.race([
+        waitForCondition(() => deadlockParkedOnChapter(holderBackendPid), 5_000).then((parked) =>
+          parked ? ('parked' as const) : ('timeout' as const),
+        ),
+        service.then(
+          () => 'ended' as const,
+          () => 'ended' as const,
+        ),
+      ]);
+      if (parkedOrEnded !== 'parked') {
+        throw new Error(
+          `被注入的事务没有停在章节行锁上（${parkedOrEnded}）；当前等待者：${await deadlockWaiterSnapshot(holderBackendPid)}`,
+        );
+      }
+      signalIntentLock();
+
+      const rejection = await settled;
+      // 夹具只是读了两次，应正常提交（若它先被选成牺牲者，说明等待顺序没搭对）。
+      await holder;
+      return rejection;
+    } finally {
+      // 断言在搭夹具途中失败时，两个闸也要放开；随后夹具最多等一次被注入事务的死锁探测。
+      signalChapterLocked();
+      signalIntentLock();
+      if (holder) await holder.catch(() => undefined);
+      if (service) await service.catch(() => undefined);
+    }
   }
 
   async function rollback(input: {
@@ -2308,6 +2464,147 @@ suite('M2 修订 / 回滚 / 豁免', () => {
     `;
     expect(commits[0]!.n).toBe('0');
   });
+
+  it('提交事务内部死锁：意图记 failed + COMMIT_FAILED（原始 40P01），正典与指针原地不动', async () => {
+    const stagedDraftId = await prepareStagedDraft(`${contentB}\n\n死锁夹具正文 ${randomUUID()}`);
+    const currentRows = await sql<{ current_version_id: string | null }[]>`
+      SELECT current_version_id FROM chapters WHERE id = ${chapterId}
+    `;
+    const expectedCurrentVersionId = currentRows[0]?.current_version_id;
+    if (!expectedCurrentVersionId) throw new Error('测试章节缺少当前正典版本，无法验证提交事务死锁');
+    const idempotencyKey = `m2-commit-deadlock-${randomUUID()}`;
+    const auth: AuthContext = { ...owner.me, sessionId: 'commit-deadlock-session' };
+
+    const before = await chapterTrail();
+    expect(before.status).toBe('staged');
+    expect(before.current).toBe(expectedCurrentVersionId);
+
+    const rejected = await driveChapterDeadlock(idempotencyKey, () =>
+      commitChapter(auth, chapterId, {
+        idempotencyKey,
+        targetChapterId: chapterId,
+        expectedCurrentVersionId,
+        stagedDraftId,
+      }),
+    );
+    expect(rejected).toBeInstanceOf(Error);
+    // 原样重抛：HTTP 层仍会答 500 INTERNAL，这里钉的是服务层归因，不是响应形状。
+    expect(rejected).not.toBeInstanceOf(AppError);
+    const rawError = rejected as Error & { code?: string };
+    expect(rawError.code).toBe('40P01');
+    expect(rawError.message).toContain('deadlock detected');
+
+    const intents = await sql<
+      { status: string; error_code: string | null; error_message: string | null }[]
+    >`
+      SELECT status, error_code, error_message
+      FROM commit_intents WHERE idempotency_key = ${idempotencyKey}
+    `;
+    expect(intents).toHaveLength(1);
+    expect(intents[0]!.status).toBe('failed');
+    expect(intents[0]!.error_code).toBe('COMMIT_FAILED');
+    expect(intents[0]!.error_message).toBe(rawError.message);
+
+    // 事务已整体回滚：版本、提交、事件、审计、指针与状态都停在暂存那一刻。
+    expect(await chapterTrail()).toEqual(before);
+
+    // 收回现场：取消暂存再放弃修订，章节回到正典且租约清空。
+    expect(
+      (await call(owner.cookie, 'DELETE', `/api/chapters/${chapterId}/stage`)).status,
+    ).toBe(200);
+    const abandoned = await call<AbandonRevisionResponse>(
+      owner.cookie,
+      'POST',
+      `/api/chapters/${chapterId}/revision/abandon`,
+    );
+    expect(abandoned.status).toBe(200);
+    expect(abandoned.body.status).toBe('canon');
+    expect(abandoned.body.currentVersionId).toBe(expectedCurrentVersionId);
+    const leases = await sql<{ n: string }[]>`
+      SELECT count(*)::text AS n FROM chapter_leases WHERE chapter_id = ${chapterId}
+    `;
+    expect(leases[0]!.n).toBe('0');
+  }, 25_000);
+
+  it('回滚事务内部死锁：意图记 failed + ROLLBACK_FAILED（原始 40P01），正典与指针原地不动', async () => {
+    const currentRows = await sql<{ current_version_id: string | null }[]>`
+      SELECT current_version_id FROM chapters WHERE id = ${chapterId}
+    `;
+    let expectedCurrentVersionId = currentRows[0]?.current_version_id;
+    if (!expectedCurrentVersionId) throw new Error('测试章节缺少当前正典版本，无法验证回滚事务死锁');
+    const targetRows = await sql<{ id: string }[]>`
+      SELECT id FROM canon_versions
+      WHERE chapter_id = ${chapterId} AND id <> ${expectedCurrentVersionId}
+      ORDER BY version_no ASC
+      LIMIT 1
+    `;
+    let targetVersionId: string | null = targetRows[0]?.id ?? null;
+    if (!targetVersionId) {
+      // 单独跑本用例时章节只有一个导入版本：先走一次真实提交造出更早版本，
+      // 否则回滚会在到达死锁注入点之前就被"只能回滚到更早版本"的业务守卫拦下。
+      const baseVersionId = expectedCurrentVersionId;
+      const stagedDraftId = await prepareStagedDraft(`${contentB}\n\n回滚死锁前置版本 ${randomUUID()}`);
+      const created = await call<CommitResponse>(
+        owner.cookie,
+        'POST',
+        `/api/chapters/${chapterId}/commit`,
+        {
+          idempotencyKey: `m2-rollback-deadlock-setup-${randomUUID()}`,
+          targetChapterId: chapterId,
+          expectedCurrentVersionId: baseVersionId,
+          stagedDraftId,
+        },
+      );
+      expect(created.status).toBe(200);
+      expectedCurrentVersionId = created.body.versionId;
+      targetVersionId = baseVersionId;
+    }
+    const idempotencyKey = `m2-rollback-deadlock-${randomUUID()}`;
+    const auth: AuthContext = { ...owner.me, sessionId: 'rollback-deadlock-session' };
+    // 闭包里用到的值先落成 const，避免 let 的收窄在回调里失效。
+    const rollbackExpectedCurrentVersionId: string = expectedCurrentVersionId;
+    const rollbackTargetId: string = targetVersionId;
+
+    const before = await chapterTrail();
+    expect(before.status).toBe('canon');
+    expect(before.current).toBe(rollbackExpectedCurrentVersionId);
+
+    const rejected = await driveChapterDeadlock(idempotencyKey, () =>
+      rollbackChapter(auth, chapterId, {
+        idempotencyKey,
+        targetVersionId: rollbackTargetId,
+        expectedCurrentVersionId: rollbackExpectedCurrentVersionId,
+        reason: '验证回滚事务死锁时的归因与回滚',
+      }),
+    );
+    expect(rejected).toBeInstanceOf(Error);
+    // 与提交链同口径：服务层原样重抛 40P01，HTTP 层仍会答 500 INTERNAL。
+    expect(rejected).not.toBeInstanceOf(AppError);
+    const rawError = rejected as Error & { code?: string };
+    expect(rawError.code).toBe('40P01');
+    expect(rawError.message).toContain('deadlock detected');
+
+    // 不是唯一约束冲突，走的是 ROLLBACK_FAILED 兜底，不是 WAIVER_ALREADY_USED。
+    const intents = await sql<
+      {
+        operation: string;
+        status: string;
+        error_code: string | null;
+        error_message: string | null;
+      }[]
+    >`
+      SELECT operation, status, error_code, error_message
+      FROM commit_intents WHERE idempotency_key = ${idempotencyKey}
+    `;
+    expect(intents).toHaveLength(1);
+    expect(intents[0]!.operation).toBe('rollback');
+    expect(intents[0]!.status).toBe('failed');
+    expect(intents[0]!.error_code).toBe('ROLLBACK_FAILED');
+    expect(intents[0]!.error_message).toBe(rawError.message);
+
+    // 事务已整体回滚：正典、版本、提交、事件、审计与指针都停在回滚之前。
+    expect(await chapterTrail()).toEqual(before);
+  }, 25_000);
 });
 
 afterAll(async () => {
