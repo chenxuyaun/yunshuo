@@ -11,7 +11,13 @@ import type {
 import type { ChapterPlan } from '@yunshuo/domain';
 import { closeDb, jsonValue, sql } from '@yunshuo/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { computeCost } from './services/ai-service.js';
+import type { AuthContext } from './auth.js';
+import {
+  computeCost,
+  executeProposal,
+  prepareProposal,
+  releaseGenerationLock,
+} from './services/ai-service.js';
 import {
   connectionFailureDetail,
   redactSecret,
@@ -1045,4 +1051,109 @@ suite('M3 持久化锁 / 重试 / 故障转移 / 成本', () => {
       expect(upstreamInStream.message).not.toContain('key-one');
     },
   );
+
+  it('截止时间已过时按 AI_TIMEOUT 收口，不真等 120 秒', async () => {
+    // 截止是 run.startedAt + 120_000；把 startedAt 回拨 121 秒后，executeAttempt 的定时器只等
+    // max(1, 负数) = 1ms 就中止。桩故意慢 800ms，保证是超时先到而不是桩先答完。
+    // 这样钉的是真实的截止算术与 abort 归因，不是把替身的失败伪装成超时。
+    await sql`UPDATE model_providers SET is_enabled = false WHERE id = ${backupId}`;
+    setPlans({
+      p1: [
+        {
+          kind: 'delayed-sse',
+          content: '超时后不该收到的正文',
+          promptTokens: 10,
+          completionTokens: 5,
+          delayMs: 800,
+        },
+      ],
+    });
+    const auth: AuthContext = { ...owner.me, sessionId: 'timeout-session' };
+    const run = await prepareProposal(
+      auth,
+      chapterId,
+      { mode: 'continue', instruction: '', targetWords: 300 },
+      undefined,
+      { budget: null },
+    );
+    try {
+      const result = await executeProposal(
+        { ...run, startedAt: Date.now() - 121_000 },
+        { onDelta: () => {} },
+        new AbortController().signal,
+      );
+      expect(result).toEqual({
+        ok: false,
+        code: 'AI_TIMEOUT',
+        message: '模型生成超时（120 秒），提案未完成',
+      });
+
+      const row = await sql<
+        { status: string; error_code: string | null; attempts: number; content: string }[]
+      >`
+        SELECT status, error_code, attempts, content FROM ai_proposals
+        WHERE id = ${run.proposalId}
+      `;
+      expect(row[0]).toEqual({
+        status: 'failed',
+        error_code: 'AI_TIMEOUT',
+        attempts: 1,
+        content: '',
+      });
+      const audit = await sql<{ result: string; errorCode: string | null }[]>`
+        SELECT result, metadata->>'errorCode' AS "errorCode"
+        FROM audit_log
+        WHERE action = 'ai.proposal.generate' AND object_id = ${chapterId}
+          AND metadata->>'proposalId' = ${run.proposalId}
+      `;
+      expect(audit[0]).toEqual({ result: 'failure', errorCode: 'AI_TIMEOUT' });
+    } finally {
+      await releaseGenerationLock(chapterId, run.proposalId);
+    }
+  });
+
+  it('客户端已中止时按 CLIENT_ABORTED 收口，且不产出任何正文', async () => {
+    // 已中止的 signal 在 fetch 之前就传进 AbortController，走的是「客户端断开」而不是「超时」：
+    // 两者的判定都读 clientSignal/timedOut，顺序写反会把这条归成 AI_TIMEOUT。
+    setPlans({ p1: [{ kind: 'sse', content: '中止后不该收到的正文', promptTokens: 10, completionTokens: 5 }] });
+    const auth: AuthContext = { ...owner.me, sessionId: 'abort-session' };
+    const run = await prepareProposal(
+      auth,
+      chapterId,
+      { mode: 'continue', instruction: '', targetWords: 300 },
+      undefined,
+      { budget: null },
+    );
+    const controller = new AbortController();
+    controller.abort();
+    const deltas: string[] = [];
+    try {
+      const result = await executeProposal(
+        run,
+        { onDelta: (text) => deltas.push(text) },
+        controller.signal,
+      );
+      expect(result).toEqual({
+        ok: false,
+        code: 'CLIENT_ABORTED',
+        message: '客户端已断开，生成已中止；提案未完成',
+      });
+      expect(deltas).toEqual([]);
+
+      const row = await sql<
+        { status: string; error_code: string | null; attempts: number; content: string }[]
+      >`
+        SELECT status, error_code, attempts, content FROM ai_proposals
+        WHERE id = ${run.proposalId}
+      `;
+      expect(row[0]).toEqual({
+        status: 'failed',
+        error_code: 'CLIENT_ABORTED',
+        attempts: 1,
+        content: '',
+      });
+    } finally {
+      await releaseGenerationLock(chapterId, run.proposalId);
+    }
+  });
 });

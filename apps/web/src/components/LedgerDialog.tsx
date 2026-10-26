@@ -95,7 +95,7 @@ const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
 
 const WRITE_ROLES = new Set(['owner', 'lead', 'author']);
 
-function statusTone(status: LedgerEntryStatus): BadgeTone {
+export function statusTone(status: LedgerEntryStatus): BadgeTone {
   switch (status) {
     case 'active':
       return 'green';
@@ -112,6 +112,15 @@ function errorText(error: unknown): string {
     : error instanceof Error
       ? error.message
       : String(error);
+}
+
+export function ledgerChapterLabel(
+  chapters: ChapterListItem[],
+  chapterId: string | null,
+): string {
+  if (!chapterId) return '未关联章节';
+  const chapter = chapters.find((item) => item.id === chapterId);
+  return chapter ? `第 ${chapter.number} 章 · ${chapter.title}` : '未知章节';
 }
 
 export function LedgerDialog({ me, chapters, onClose }: Props) {
@@ -149,9 +158,7 @@ export function LedgerDialog({ me, chapters, onClose }: Props) {
   const workTitleById = new Map(works.map((work) => [work.id, work.title]));
 
   function chapterLabel(chapterId: string | null): string {
-    if (!chapterId) return '未关联章节';
-    const chapter = chapterById.get(chapterId);
-    return chapter ? `第 ${chapter.number} 章 · ${chapter.title}` : '未知章节';
+    return ledgerChapterLabel(chapters, chapterId);
   }
 
   function chapterNumber(chapterId: string): number {
@@ -828,7 +835,7 @@ export function LedgerDialog({ me, chapters, onClose }: Props) {
   );
 }
 
-function LedgerListItem({
+export function LedgerListItem({
   item,
   workTitle,
   selected,
@@ -910,7 +917,7 @@ interface DetailViewProps {
   onToggleCompare: (versionId: string) => void;
 }
 
-function LedgerEntryDetailView({
+export function LedgerEntryDetailView({
   entry,
   chapters,
   versions,
@@ -1354,7 +1361,7 @@ function LedgerEntryDetailView({
   );
 }
 
-function CharacterPayloadView({
+export function CharacterPayloadView({
   payload,
   chapterLabel,
   chapterNumber,
@@ -1445,7 +1452,7 @@ function CharacterPayloadView({
   );
 }
 
-function ForeshadowingPayloadView({
+export function ForeshadowingPayloadView({
   payload,
   meta,
   chapterLabel,
@@ -1537,7 +1544,7 @@ const CHARACTER_WARNING_LABELS: Record<LedgerCharacterTimeline['warnings'][numbe
   relationship_conflict: '关系描述冲突',
 };
 
-function CharacterContinuitySection({
+export function CharacterContinuitySection({
   entry,
   timeline,
   loading,
@@ -1628,7 +1635,7 @@ function CharacterContinuitySection({
   );
 }
 
-function LedgerDiff({ rows, emptyText }: { rows: LedgerFieldDiff[]; emptyText: string }) {
+export function LedgerDiff({ rows, emptyText }: { rows: LedgerFieldDiff[]; emptyText: string }) {
   if (rows.length === 0) return <p className="empty-state">{emptyText}</p>;
   return (
     <div className="ledger-diff">

@@ -77,7 +77,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function uniqueWorks(chapters: ChapterListItem[]): WorkOption[] {
+export function uniqueWorks(chapters: ChapterListItem[]): WorkOption[] {
   const map = new Map<string, WorkOption>();
   for (const chapter of chapters) {
     let work = map.get(chapter.workId);
@@ -90,7 +90,7 @@ function uniqueWorks(chapters: ChapterListItem[]): WorkOption[] {
   return [...map.values()];
 }
 
-function suggestedRange(chapters: ChapterListItem[], workId: string): { min: number; max: number } {
+export function suggestedRange(chapters: ChapterListItem[], workId: string): { min: number; max: number } {
   const numbers = chapters
     .filter((chapter) => chapter.workId === workId)
     .map((chapter) => chapter.number);
@@ -98,7 +98,7 @@ function suggestedRange(chapters: ChapterListItem[], workId: string): { min: num
   return { min: next, max: next + 9 };
 }
 
-function defaultForm(chapters: ChapterListItem[], workId: string): MandateFormState {
+export function defaultForm(chapters: ChapterListItem[], workId: string): MandateFormState {
   const range = suggestedRange(chapters, workId);
   return {
     workId,
@@ -118,17 +118,17 @@ function defaultForm(chapters: ChapterListItem[], workId: string): MandateFormSt
   };
 }
 
-function positiveInt(value: string): number | null {
+export function positiveInt(value: string): number | null {
   if (!/^\d+$/.test(value.trim())) return null;
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
-function money(value: number, currency: PriceCurrency): string {
+export function money(value: number, currency: PriceCurrency): string {
   return `${currency === 'USD' ? '$' : '¥'}${value.toFixed(4)}`;
 }
 
-function PreflightPanel({ view }: { view: AutomationPreflightView }) {
+export function PreflightPanel({ view }: { view: AutomationPreflightView }) {
   return (
     <div className="automation-preflight">
       <div className="automation-preflight-head">
