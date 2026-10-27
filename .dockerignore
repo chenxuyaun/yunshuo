@@ -6,6 +6,8 @@ dist
 .gitignore
 backups
 coverage
+.mimosa
+**/.mimosa
 *.log
 .env
 .env.*

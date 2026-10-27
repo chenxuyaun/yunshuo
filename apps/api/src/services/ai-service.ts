@@ -37,6 +37,12 @@ import {
   MIN_GENERATION_COMPLETION_TOKENS,
   reserveGenerationCall,
 } from './billing-service.js';
+import {
+  RETRIEVAL_CHUNK_CHARS,
+  RETRIEVAL_PER_CHAPTER,
+  RETRIEVAL_RESULT_LIMIT,
+  RETRIEVAL_TOTAL_CHARS,
+} from './retrieval-budget.js';
 
 const PROMPT_VERSION = 'm6-v1';
 const AI_TIMEOUT_MS = 120_000;
@@ -50,10 +56,7 @@ const MAX_ATTEMPTS_PER_PROVIDER = 2;
 const MAX_TOTAL_ATTEMPTS = 4;
 const RETRY_BACKOFF_MS = [600, 1200, 1800];
 const RETRYABLE_HTTP_STATUS = new Set([408, 429, 500, 502, 503, 504]);
-const RETRIEVAL_RESULT_LIMIT = 6;
-const RETRIEVAL_TOTAL_CHARS = 2400;
-const RETRIEVAL_CHUNK_CHARS = 500;
-const RETRIEVAL_PER_CHAPTER = 2;
+// 检索预算与工具面共用 apps/api/src/services/retrieval-budget.ts（从整章装配借来的那组值）。
 // 中文正文约 1–2 token/字；按 2 倍预留输入费用，避免 max_tokens 上限把输入成本挤掉。
 const PROMPT_TOKENS_PER_CHAR = 2;
 const PROMPT_TOKEN_OVERHEAD = 64;

@@ -41,6 +41,9 @@ importers:
       '@yunshuo/retrieval':
         specifier: workspace:*
         version: link:../../packages/retrieval
+      '@yunshuo/tool-surface':
+        specifier: workspace:*
+        version: link:../../packages/tool-surface
       dotenv:
         specifier: ^17.0.0
         version: 17.4.2
@@ -233,6 +236,22 @@ importers:
         version: 3.2.7(@types/node@24.19.2)(tsx@4.23.15)
 
   packages/retrieval:
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.19.2
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.7(@types/node@24.19.2)(tsx@4.23.15)
+
+  packages/tool-surface:
+    dependencies:
+      zod:
+        specifier: ^4.1.0
+        version: 4.6.7
     devDependencies:
       '@types/node':
         specifier: ^24.0.0

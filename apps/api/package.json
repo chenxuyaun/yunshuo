@@ -19,6 +19,7 @@
     "@yunshuo/gates": "workspace:*",
     "@yunshuo/model-gateway": "workspace:*",
     "@yunshuo/retrieval": "workspace:*",
+    "@yunshuo/tool-surface": "workspace:*",
     "dotenv": "^17.0.0",
     "fastify": "^5.6.0",
     "jose": "^6.2.13",
