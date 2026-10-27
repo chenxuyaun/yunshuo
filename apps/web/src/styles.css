@@ -5239,3 +5239,370 @@ dt {
     grid-column: 1 / -1;
   }
 }
+
+/* ---------- Plan card, mark banner ---------- */
+
+.plan-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.plan-card-head .eyebrow {
+  margin-bottom: 0;
+}
+
+.plan-summary {
+  margin: 6px 0 2px;
+  font-family: var(--font-serif);
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--ink);
+}
+
+.plan-summary.is-empty {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.plan-history-link {
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.plan-history-link:hover {
+  color: var(--ink);
+}
+
+.plan-mark-banner {
+  border-left-color: var(--amber);
+  background: var(--amber-wash);
+}
+
+.plan-mark-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.plan-stale-banner {
+  border-left-color: var(--red);
+  background: var(--red-wash);
+}
+
+.chapter-flag {
+  align-self: flex-start;
+  padding: 0 5px;
+  border: 1px solid var(--amber);
+  color: var(--amber);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.6;
+}
+
+.chapter-empty {
+  padding: 14px 11px;
+  border: 1px dashed var(--line-strong);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.chapter-empty p + p {
+  margin-top: 4px;
+}
+
+.empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: 14px;
+}
+
+/* ---------- Plan dialog ---------- */
+
+.modal-plan {
+  width: min(100%, 780px);
+}
+
+.plan-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.plan-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.plan-tab {
+  padding: 6px 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--ink-faint);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+.plan-tab.is-active {
+  border-bottom-color: var(--vermilion);
+  color: var(--ink);
+}
+
+.plan-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.plan-policy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 11px 14px;
+  border: 1px solid var(--amber);
+  background: var(--amber-wash);
+  font-size: 12px;
+}
+
+.plan-policy legend {
+  padding: 0 5px;
+  font-weight: 700;
+}
+
+.plan-policy label {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  line-height: 1.6;
+}
+
+.plan-conflict {
+  padding: 13px 15px;
+  border: 1px solid var(--red);
+  background: var(--red-wash);
+  font-size: 12px;
+}
+
+.plan-conflict h3 {
+  margin: 2px 0 5px;
+  font-family: var(--font-serif);
+  font-size: 16px;
+}
+
+.plan-conflict-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 9px;
+}
+
+.plan-conflict-columns ul {
+  margin: 4px 0 0;
+  padding-left: 16px;
+  line-height: 1.7;
+}
+
+.plan-conflict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 11px;
+}
+
+.plan-history {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plan-history-item {
+  padding: 10px 2px;
+  border-bottom: 1px dashed var(--line);
+  font-size: 12px;
+}
+
+.plan-history-item.is-current {
+  border-left: 2px solid var(--green);
+  padding-left: 10px;
+}
+
+.plan-history-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.plan-history-policy {
+  padding: 0 6px;
+  border: 1px solid var(--line-strong);
+  color: var(--ink-soft);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+.plan-history-diff {
+  margin: 5px 0 0;
+  padding-left: 16px;
+  color: var(--ink-soft);
+  line-height: 1.7;
+}
+
+/* ---------- Work structure dialog ---------- */
+
+.modal-structure {
+  width: min(100%, 960px);
+}
+
+.structure-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.structure-works,
+.structure-work-meta,
+.structure-volumes,
+.structure-chapters {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.structure-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 5px;
+}
+
+.structure-head h3,
+.structure-head h4 {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.structure-head h4 {
+  font-size: 13px;
+}
+
+.structure-work-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.structure-work {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 7px 11px;
+  border: 1px solid var(--line);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.structure-work strong {
+  font-family: var(--font-serif);
+  font-size: 14px;
+}
+
+.structure-work.is-active {
+  border-color: var(--line-strong);
+  border-left: 2px solid var(--vermilion);
+  background: var(--paper-raised);
+}
+
+.structure-inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
+.structure-inline-form input,
+.structure-inline-form select,
+.structure-chapter-form input,
+.structure-chapter-form select {
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--line-strong);
+  background: var(--paper-raised);
+  font-size: 12px;
+}
+
+.structure-volume-list,
+.structure-chapter-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.structure-volume,
+.structure-chapter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 2px;
+  border-bottom: 1px dashed var(--line);
+  font-size: 12px;
+}
+
+.structure-volume:last-child,
+.structure-chapter:last-child {
+  border-bottom: 0;
+}
+
+.structure-title {
+  flex: 1;
+  min-width: 120px;
+  font-family: var(--font-serif);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.structure-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.structure-flags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.structure-chapter-form {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 4px;
+  padding: 10px 12px;
+  border: 1px dashed var(--line-strong);
+}
+

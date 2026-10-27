@@ -11,7 +11,10 @@ function chapter(overrides: Partial<ChapterListItem> = {}): ChapterListItem {
     number: 1,
     title: '第一章 起',
     status: 'canon',
+    volumeId: 'volume-1',
     volumeTitle: '上卷',
+    planRevision: 0,
+    bodyNeedsRevision: false,
     wordCount: 1200,
     currentVersionNo: 1,
     updatedAt: '2026-10-23T18:07:00.000Z',
@@ -34,7 +37,7 @@ describe('ChapterList', () => {
     const html = render([
       chapter({ id: 'c1', number: 1 }),
       chapter({ id: 'c2', number: 2, title: '第二章 承' }),
-      chapter({ id: 'c3', number: 3, volumeTitle: '下卷', title: '第三章 转' }),
+      chapter({ id: 'c3', number: 3, volumeId: 'volume-2', volumeTitle: '下卷', title: '第三章 转' }),
     ]);
     expect(count(html, 'class="volume-group"')).toBe(2);
     expect(count(html, 'class="volume-title"')).toBe(2);
@@ -102,5 +105,32 @@ describe('ChapterList', () => {
     expect(html).toContain('<span class="badge badge-green">正典</span>');
     expect(html).toContain('<span class="badge badge-ink">写作中</span>');
     expect(html).toContain('<span class="badge badge-red">提交待修复</span>');
+  });
+
+  it('卷按 volumeId 分组：同名卷不会被合并', () => {
+    const html = render([
+      chapter({ id: 'c1', number: 1, volumeId: 'volume-1', volumeTitle: '上卷' }),
+      chapter({ id: 'c2', number: 2, volumeId: 'volume-2', volumeTitle: '上卷' }),
+    ]);
+    expect(count(html, 'class="volume-group"')).toBe(2);
+    expect(count(html, '<h3 class="volume-title">上卷</h3>')).toBe(2);
+    expect(count(html, 'class="chapter-item"')).toBe(2);
+  });
+
+  it('待改稿标记只跟随 bodyNeedsRevision', () => {
+    const html = render([
+      chapter({ id: 'c1', number: 1, bodyNeedsRevision: true }),
+      chapter({ id: 'c2', number: 2, bodyNeedsRevision: false }),
+      chapter({ id: 'c3', number: 3, bodyNeedsRevision: true }),
+    ]);
+    expect(count(html, '<span class="chapter-flag">待改稿</span>')).toBe(2);
+  });
+
+  it('没有章节时给出开书与导入两条路径', () => {
+    const html = render([]);
+    expect(html).toContain('<p>还没有章节。</p>');
+    expect(html).toContain('先在“作品与卷”里新建作品、卷与章节，或导入旧稿。');
+    expect(html).not.toContain('class="volume-group"');
+    expect(html).not.toContain('sidebar-current');
   });
 });

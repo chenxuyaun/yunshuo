@@ -53,6 +53,16 @@ export interface ChapterPlan {
   obstacleKeywords?: string[];
 }
 
+// 门禁只读 ChapterPlan 那三项；摘要与节拍只服务界面、历史与生成提示。
+// 两者分开是为了让 chapters.plan 的哈希语义保持不变。
+export interface ChapterPlanDocument extends ChapterPlan {
+  summary: string;
+  beats: string[];
+  requiredEntities: string[];
+  goalKeywords: string[];
+  obstacleKeywords: string[];
+}
+
 export interface GateRulesetConfig {
   wordCount?: {
     min: number;

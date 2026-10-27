@@ -3,6 +3,7 @@ import { sql, jsonValue } from '@yunshuo/db';
 import {
   countWords,
   isBlank,
+  normalizeChapterPlanDocument,
   sha256,
   type ChapterStatus,
 } from '@yunshuo/domain';
@@ -61,7 +62,10 @@ interface ChapterListRow {
   number: number;
   title: string;
   status: ChapterStatus;
+  volume_id: string;
   volume_title: string;
+  plan_revision: number;
+  body_needs_revision: boolean;
   word_count: number | null;
   current_version_no: number | null;
   updated_at: Date | string;
@@ -71,7 +75,8 @@ export async function listChapters(auth: AuthContext): Promise<ChapterListItem[]
   const rows = await sql<ChapterListRow[]>`
     SELECT
       c.id, c.work_id, w.title AS work_title,
-      c.number, c.title, c.status, v.title AS volume_title,
+      c.number, c.title, c.status, c.volume_id, v.title AS volume_title,
+      c.plan_revision, c.body_needs_revision,
       cm.word_count, cv.version_no AS current_version_no, c.updated_at
     FROM chapters c
     JOIN works w ON w.id = c.work_id
@@ -80,7 +85,7 @@ export async function listChapters(auth: AuthContext): Promise<ChapterListItem[]
     LEFT JOIN canon_current cc ON cc.chapter_id = c.id
     LEFT JOIN canon_versions cv ON cv.id = cc.version_id
     WHERE w.workspace_id = ${auth.workspace.id}
-    ORDER BY c.number ASC
+    ORDER BY w.created_at ASC, w.id ASC, v.number ASC, c.number ASC
   `;
   return rows.map((row) => ({
     id: row.id,
@@ -89,7 +94,10 @@ export async function listChapters(auth: AuthContext): Promise<ChapterListItem[]
     number: row.number,
     title: row.title,
     status: row.status,
+    volumeId: row.volume_id,
     volumeTitle: row.volume_title,
+    planRevision: row.plan_revision,
+    bodyNeedsRevision: row.body_needs_revision,
     wordCount: row.word_count,
     currentVersionNo: row.current_version_no,
     updatedAt: iso(row.updated_at),
@@ -104,6 +112,13 @@ interface ChapterBaseRow {
   title: string;
   status: ChapterStatus;
   plan: ChapterDetail['plan'];
+  plan_revision: number;
+  plan_summary: string;
+  plan_beats: string[];
+  plan_updated_at: Date | string | null;
+  body_needs_revision: boolean;
+  marked_plan_revision: number | null;
+  marked_canon_version_id: string | null;
   updated_at: Date | string;
   word_count: number | null;
   current_version_id: string | null;
@@ -133,6 +148,8 @@ export async function getChapter(auth: AuthContext, chapterId: string): Promise<
   const baseRows = await sql<ChapterBaseRow[]>`
     SELECT
       c.id, c.work_id, c.volume_id, c.number, c.title, c.status, c.plan,
+      c.plan_revision, c.plan_summary, c.plan_beats, c.plan_updated_at,
+      c.body_needs_revision, c.marked_plan_revision, c.marked_canon_version_id,
       c.updated_at, cm.word_count, c.current_version_id
     FROM chapters c
     JOIN works w ON w.id = c.work_id
@@ -253,7 +270,16 @@ export async function getChapter(auth: AuthContext, chapterId: string): Promise<
     number: base.number,
     title: base.title,
     status: base.status,
-    plan: base.plan,
+    plan: normalizeChapterPlanDocument({
+      ...base.plan,
+      summary: base.plan_summary,
+      beats: base.plan_beats,
+    }),
+    planRevision: base.plan_revision,
+    planUpdatedAt: base.plan_updated_at ? iso(base.plan_updated_at) : null,
+    bodyNeedsRevision: base.body_needs_revision,
+    markedPlanRevision: base.marked_plan_revision,
+    markedCanonVersionId: base.marked_canon_version_id,
     wordCount: base.word_count,
     currentVersion,
     draft,

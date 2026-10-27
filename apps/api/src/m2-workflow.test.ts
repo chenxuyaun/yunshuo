@@ -24,6 +24,14 @@ import { rollbackChapter } from './services/rollback-service.js';
 
 const TEST_TITLE = 'M2 测试章节';
 const TEST_NUMBER = 9901;
+// 兄弟章节号避开 m3b 兜底帧测试的 9903：本文件中途失败时它留在库里，撞号会连带下一个文件。
+const SIBLING_NUMBER = 9913;
+
+// 账目窗口必须用数据库时钟：宿主机与容器有毫秒级漂移时，本地 Date 会把上一个用例的尾巴算进来。
+async function dbNow(): Promise<Date> {
+  const rows = await sql<{ now: Date }[]>`SELECT now() AS now`;
+  return rows[0]!.now;
+}
 
 const plan: ChapterPlan = {
   requiredEntities: ['林默'],
@@ -1183,7 +1191,7 @@ suite('M2 修订 / 回滚 / 豁免', () => {
   });
 
   it('回滚前逐条复核：目标必须更早且属本章、正典且无人占租、豁免对得上且批准人独立', async () => {
-    const startedAt = new Date();
+    const startedAt = await dbNow();
 
     interface Trace {
       versions: string;
@@ -1654,7 +1662,7 @@ suite('M2 修订 / 回滚 / 豁免', () => {
 
   it('提交链的四道复核：目标章节要一致、暂存要属本章且是最新一份、门禁证据的上下文不能变', async () => {
     const SIBLING_TITLE = 'M2 提交链兄弟章节';
-    const startedAt = new Date();
+    const startedAt = await dbNow();
 
     interface Trace {
       versions: string;
@@ -1886,7 +1894,7 @@ suite('M2 修订 / 回滚 / 豁免', () => {
     await sql`
       INSERT INTO chapters (id, work_id, volume_id, number, title, status, plan)
       VALUES (
-        ${sibling}, ${location.work_id}, ${location.volume_id}, ${TEST_NUMBER + 2},
+        ${sibling}, ${location.work_id}, ${location.volume_id}, ${SIBLING_NUMBER},
         ${SIBLING_TITLE}, 'canon', ${sql.json(jsonValue(plan))}
       )
     `;

@@ -19,9 +19,11 @@ import type {
   BillingBudgetView,
   BillingProviderPriceView,
   BillingReportResponse,
+  BodyPolicy,
   ChapterDetail,
   ChapterLedgerLinksResponse,
   ChapterListItem,
+  ChapterPlanStateView,
   ChangePasswordResponse,
   CommitResponse,
   CompletePasswordResetResponse,
@@ -53,6 +55,7 @@ import type {
   ModelProviderTestResponse,
   ModelProviderView,
   PasswordResetRequestResponse,
+  PlanRevisionsResponse,
   ProviderBillListResponse,
   ProviderBillReconciliationResponse,
   ProviderBillView,
@@ -66,9 +69,12 @@ import type {
   StartRevisionResponse,
   UpdateLedgerDraftInput,
   VersionDetail,
+  VolumeView,
   WaiverGateKey,
   WaiverView,
   WorkspaceMembershipsResponse,
+  WorksResponse,
+  WorkView,
   ArchiveLedgerEntryInput,
   CreateLedgerEntryInput,
   CreateLedgerSuggestionInput,
@@ -923,6 +929,127 @@ export function rejectLedgerSuggestion(
   input: RejectLedgerSuggestionInput,
 ): Promise<LedgerSuggestionView> {
   return request<LedgerSuggestionView>(`/api/ledger/suggestions/${suggestionId}/reject`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export interface ChapterPlanInput {
+  plan: {
+    summary: string;
+    beats: string[];
+    requiredEntities: string[];
+    goalKeywords: string[];
+    obstacleKeywords: string[];
+  };
+  basePlanRevision: number;
+  bodyPolicy?: BodyPolicy;
+}
+
+export interface ChapterMetaInput {
+  title?: string;
+  volumeId?: string;
+  insertAfterChapterId?: string | null;
+}
+
+export interface ChapterCreateInput {
+  volumeId: string;
+  title: string;
+  insertAfterChapterId?: string;
+}
+
+export function listWorks(): Promise<WorksResponse> {
+  return request<WorksResponse>('/api/works');
+}
+
+export function createWork(input: { title: string }): Promise<WorkView> {
+  return request<WorkView>('/api/works', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function renameWork(workId: string, input: { title: string }): Promise<WorkView> {
+  return request<WorkView>(`/api/works/${workId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export function createVolume(
+  workId: string,
+  input: { title: string; number?: number },
+): Promise<VolumeView> {
+  return request<VolumeView>(`/api/works/${workId}/volumes`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function renameVolume(volumeId: string, input: { title: string }): Promise<VolumeView> {
+  return request<VolumeView>(`/api/volumes/${volumeId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export function reorderVolumes(
+  workId: string,
+  input: { volumeIds: string[] },
+): Promise<VolumeView[]> {
+  return request<VolumeView[]>(`/api/works/${workId}/volumes/order`, {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
+}
+
+export function createChapter(
+  workId: string,
+  input: ChapterCreateInput,
+): Promise<ChapterListItem> {
+  return request<ChapterListItem>(`/api/works/${workId}/chapters`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateChapterMeta(
+  chapterId: string,
+  input: ChapterMetaInput,
+): Promise<ChapterListItem> {
+  return request<ChapterListItem>(`/api/chapters/${chapterId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export function saveChapterPlan(
+  chapterId: string,
+  input: ChapterPlanInput,
+): Promise<ChapterPlanStateView> {
+  return request<ChapterPlanStateView>(`/api/chapters/${chapterId}/plan`, {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
+}
+
+export function listPlanRevisions(
+  chapterId: string,
+  options: { before?: number; limit?: number } = {},
+): Promise<PlanRevisionsResponse> {
+  const params = new URLSearchParams();
+  if (options.before !== undefined) params.set('before', String(options.before));
+  if (options.limit !== undefined) params.set('limit', String(options.limit));
+  const query = params.toString();
+  const suffix = query ? `?${query}` : '';
+  return request<PlanRevisionsResponse>(`/api/chapters/${chapterId}/plan/revisions${suffix}`);
+}
+
+export function resolveBodyRevision(
+  chapterId: string,
+  input: { planRevision: number; addressedCanonVersionId: string },
+): Promise<ChapterPlanStateView> {
+  return request<ChapterPlanStateView>(`/api/chapters/${chapterId}/plan/body-revision/resolve`, {
     method: 'POST',
     body: JSON.stringify(input),
   });

@@ -8,10 +8,14 @@ interface Props {
 }
 
 export function ChapterList({ chapters, selectedId, onSelect }: Props) {
-  const groups: { key: string; workTitle: string; volumeTitle: string; chapters: ChapterListItem[] }[] =
-    [];
+  const groups: {
+    key: string;
+    workTitle: string;
+    volumeTitle: string;
+    chapters: ChapterListItem[];
+  }[] = [];
   for (const chapter of chapters) {
-    const key = `${chapter.workId}::${chapter.volumeTitle}`;
+    const key = `${chapter.workId}::${chapter.volumeId}`;
     let group = groups.find((item) => item.key === key);
     if (!group) {
       group = {
@@ -38,6 +42,12 @@ export function ChapterList({ chapters, selectedId, onSelect }: Props) {
       </div>
 
       <nav className="chapter-nav" aria-label="章节目录">
+        {chapters.length === 0 ? (
+          <div className="chapter-empty">
+            <p>还没有章节。</p>
+            <p className="muted">先在“作品与卷”里新建作品、卷与章节，或导入旧稿。</p>
+          </div>
+        ) : null}
         {groups.map((group) => (
           <section key={group.key} className="volume-group">
             {workTitles.length > 1 ? (
@@ -61,6 +71,9 @@ export function ChapterList({ chapters, selectedId, onSelect }: Props) {
                     {chapter.wordCount != null ? `${chapter.wordCount} 字` : '尚无正典'}
                     {chapter.currentVersionNo != null ? ` · v${chapter.currentVersionNo}` : ''}
                   </span>
+                  {chapter.bodyNeedsRevision ? (
+                    <span className="chapter-flag">待改稿</span>
+                  ) : null}
                 </button>
               ))}
             </div>

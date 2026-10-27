@@ -18,6 +18,13 @@ export interface ChapterRow {
   title: string;
   status: 'planned' | 'writing' | 'staged' | 'canon' | 'revision' | 'commit_failed' | 'archived';
   plan: ChapterPlan;
+  plan_revision: number;
+  plan_summary: string;
+  plan_beats: string[];
+  plan_updated_at: Date | string | null;
+  body_needs_revision: boolean;
+  marked_plan_revision: number | null;
+  marked_canon_version_id: string | null;
   current_version_id: string | null;
   updated_at: Date | string;
   workspace_id: string;
@@ -35,6 +42,8 @@ export async function loadChapter(
     ? await exec<ChapterRow[]>`
         SELECT
           c.id, c.work_id, c.volume_id, c.number, c.title, c.status, c.plan,
+          c.plan_revision, c.plan_summary, c.plan_beats, c.plan_updated_at,
+          c.body_needs_revision, c.marked_plan_revision, c.marked_canon_version_id,
           c.current_version_id, c.updated_at,
           w.workspace_id, ws.settings_version, ws.ledger_version
         FROM chapters c
@@ -46,6 +55,8 @@ export async function loadChapter(
     : await exec<ChapterRow[]>`
         SELECT
           c.id, c.work_id, c.volume_id, c.number, c.title, c.status, c.plan,
+          c.plan_revision, c.plan_summary, c.plan_beats, c.plan_updated_at,
+          c.body_needs_revision, c.marked_plan_revision, c.marked_canon_version_id,
           c.current_version_id, c.updated_at,
           w.workspace_id, ws.settings_version, ws.ledger_version
         FROM chapters c

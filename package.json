@@ -16,7 +16,10 @@
     "db:seed": "pnpm --filter @yunshuo/db seed",
     "db:reset": "docker compose down -v && docker compose up -d db && pnpm db:migrate && pnpm db:seed",
     "test": "pnpm -r --workspace-concurrency=1 --if-present test",
-    "typecheck": "pnpm -r --if-present typecheck"
+    "typecheck": "pnpm -r --if-present typecheck",
+    "check:endpoints": "node scripts/endpoint-test-coverage.mjs --check",
+    "check:error-codes": "node scripts/error-code-test-coverage.mjs --check",
+    "check:schema-drift": "node scripts/schema-drift.mjs --check"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { OIDC_STATE_COOKIE, OIDC_STATE_COOKIE_PATH } from './services/oidc-service.js';
 
@@ -38,8 +39,8 @@ const BASE_KEYS = [
 const WEB_ORIGIN = 'http://127.0.0.1:5199';
 const INCOMPLETE_MESSAGE =
   'OIDC 配置不完整：必须同时设置 OIDC_ISSUER、OIDC_CLIENT_ID、OIDC_REDIRECT_URI';
-const PROD_SESSION_SECRET = 'oidc-config-test-session-secret';
-const PROD_MODEL_SECRET = 'oidc-config-test-model-key-secret';
+const PROD_SESSION_SECRET = `oidc-config-session-${randomUUID()}`;
+const PROD_MODEL_SECRET = `oidc-config-model-${randomUUID()}`;
 
 type EnvModule = typeof import('./env.js');
 type EnvObject = EnvModule['env'];
@@ -133,7 +134,7 @@ describe('OIDC 装配分支：默认关闭、缺一即拒、边界按实现', ()
     );
     // 只填 clientSecret 也算"想启用"：`anyConfigured` 把它算进去了。少了这一支，
     // 一个只粘了密钥的部署会被静默当成没配置，SSO 按钮消失且没有任何报错。
-    expect(await assembleError(dev({ OIDC_CLIENT_SECRET: 'a-secret' }))).toBe(INCOMPLETE_MESSAGE);
+    expect(await assembleError(dev({ OIDC_CLIENT_SECRET: `oidc-secret-${randomUUID()}` }))).toBe(INCOMPLETE_MESSAGE);
     // 反过来：配齐三件就启用，不因缺密钥而拒（PKCE 公开客户端是允许的部署）。
     const env = await assemble(dev(complete));
     expect(env.oidc.enabled).toBe(true);

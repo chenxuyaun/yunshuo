@@ -26,6 +26,10 @@ import {
 
 const TEST_TITLE = 'M3 运行时测试章节';
 const TEST_NUMBER = 9902;
+// 本地桩服务不校验密钥，值只为区分"这一次运行用的是哪一把"，按运行期生成。
+const STUB_KEY_PRIMARY = `primary-key-${randomUUID().slice(0, 8)}`;
+const STUB_KEY_BACKUP = `backup-key-${randomUUID().slice(0, 8)}`;
+const REDACT_SAMPLE = `sk-secret-${randomUUID().slice(0, 8)}`;
 
 const plan: ChapterPlan = {
   requiredEntities: ['林默'],
@@ -99,7 +103,7 @@ describe('生成成本计算', () => {
 
 describe('端点错误摘要脱敏与底层原因提取', () => {
   it('脱敏替换所有出现，但不处理空密钥与过短密钥', () => {
-    expect(redactSecret('HTTP 500 · Bearer sk-secret-1 与 sk-secret-1 重复', 'sk-secret-1')).toBe(
+    expect(redactSecret(`HTTP 500 · Bearer ${REDACT_SAMPLE} 与 ${REDACT_SAMPLE} 重复`, REDACT_SAMPLE)).toBe(
       'HTTP 500 · Bearer •••• 与 •••• 重复',
     );
     // 空密钥与 null 原样返回：没有可替换的对象时不能凭空打码
@@ -407,7 +411,7 @@ suite('M3 持久化锁 / 重试 / 故障转移 / 成本', () => {
       name: 'M3 测试主服务商',
       baseUrl: `http://127.0.0.1:${stubPort}/p1/v1`,
       model: 'stub-primary',
-      apiKey: 'key-one',
+      apiKey: STUB_KEY_PRIMARY,
       isEnabled: true,
       priority: 1,
       promptPricePer1m: 2,
@@ -421,7 +425,7 @@ suite('M3 持久化锁 / 重试 / 故障转移 / 成本', () => {
       name: 'M3 测试备用服务商',
       baseUrl: `http://127.0.0.1:${stubPort}/p2/v1`,
       model: 'stub-backup',
-      apiKey: 'key-two',
+      apiKey: STUB_KEY_BACKUP,
       isEnabled: true,
       priority: 2,
       promptPricePer1m: 3,
@@ -529,7 +533,7 @@ suite('M3 持久化锁 / 重试 / 故障转移 / 成本', () => {
     expect(proposal.costCurrency).toBe('CNY');
 
     expect(requests.map((request) => request.provider)).toEqual(['p1', 'p1']);
-    expect(requests[0]?.authorization).toBe('Bearer key-one');
+    expect(requests[0]?.authorization).toBe(`Bearer ${STUB_KEY_PRIMARY}`);
     expect(requests[0]?.body?.model).toBe('stub-primary');
     expect(requests[0]?.body?.stream_options).toEqual({ include_usage: true });
 
@@ -608,7 +612,7 @@ suite('M3 持久化锁 / 重试 / 故障转移 / 成本', () => {
     expect(proposal.attempts).toBe(2);
     expect(proposal.cost).toBe(0.0096);
     expect(requests.map((request) => request.provider)).toEqual(['p1', 'p2']);
-    expect(requests[1]?.authorization).toBe('Bearer key-two');
+    expect(requests[1]?.authorization).toBe(`Bearer ${STUB_KEY_BACKUP}`);
   });
 
   it('持久化锁阻止并发，并在结束后释放', async () => {
@@ -1029,26 +1033,26 @@ suite('M3 持久化锁 / 重试 / 故障转移 / 成本', () => {
       });
 
       const upstream = await failWith(
-        { kind: 'upstream-error', message: '内容策略拒绝：key-one 无效', code: 'content_policy' },
+        { kind: 'upstream-error', message: `内容策略拒绝：${STUB_KEY_PRIMARY} 无效`, code: 'content_policy' },
         1,
       );
       expect(upstream.code).toBe('AI_UPSTREAM_ERROR');
       expect(upstream.message).toContain('内容策略拒绝');
       expect(upstream.message).toContain('••••');
-      expect(upstream.message).not.toContain('key-one');
+      expect(upstream.message).not.toContain(STUB_KEY_PRIMARY);
 
       // 同一条上游错误换成 SSE 里的一条 data 事件，走的是另一处判定分支：
       // 只有两处都断言，删掉任意一处的脱敏才不会悄悄漏过去。
-      // 密钥必须是这一条真正被调用的 p1 的 key-one：备用服务商已关掉，换成 key-two
-      // 脱敏函数根本没有可替换的对象，那句 not.toContain 就成了永远成立的假阳性。
+      // 报文里的密钥必须是这一条真正被调用的 p1 的那把：备用服务商已关掉，
+      // 换成备用那把脱敏函数就没有可替换的对象，那句 not.toContain 会变成永远成立的假阳性。
       const upstreamInStream = await failWith(
-        { kind: 'sse-upstream-error', message: '内容策略拒绝：key-one 无效', code: 'content_policy' },
+        { kind: 'sse-upstream-error', message: `内容策略拒绝：${STUB_KEY_PRIMARY} 无效`, code: 'content_policy' },
         1,
       );
       expect(upstreamInStream.code).toBe('AI_UPSTREAM_ERROR');
       expect(upstreamInStream.message).toContain('内容策略拒绝');
       expect(upstreamInStream.message).toContain('••••');
-      expect(upstreamInStream.message).not.toContain('key-one');
+      expect(upstreamInStream.message).not.toContain(STUB_KEY_PRIMARY);
     },
   );
 

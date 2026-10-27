@@ -140,7 +140,15 @@ function planText(chapter: ChapterRow): string {
   const entities = (plan.requiredEntities ?? []).join('、') || '未设置';
   const goals = (plan.goalKeywords ?? []).join('、') || '未设置';
   const obstacles = (plan.obstacleKeywords ?? []).join('、') || '未设置';
-  return `核心人物：${entities}\n目标关键词：${goals}\n阻碍关键词：${obstacles}`;
+  const lines: string[] = [];
+  const summary = chapter.plan_summary?.trim();
+  if (summary) lines.push(`摘要：${summary}`);
+  const beats = chapter.plan_beats ?? [];
+  if (beats.length > 0) {
+    lines.push(`节拍：\n${beats.map((beat, index) => `${index + 1}. ${beat}`).join('\n')}`);
+  }
+  lines.push(`核心人物：${entities}`, `目标关键词：${goals}`, `阻碍关键词：${obstacles}`);
+  return lines.join('\n');
 }
 
 interface PreviousChapterRow {

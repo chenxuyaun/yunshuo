@@ -11,7 +11,7 @@ import type {
   RulesetView,
   VersionSummary,
 } from '@yunshuo/contracts';
-import type { ChapterPlan } from '@yunshuo/domain';
+import type { ChapterPlanDocument } from '@yunshuo/domain';
 import { ChapterStudio } from './ChapterStudio.js';
 
 const RULESET: RulesetView = {
@@ -95,7 +95,9 @@ function version(overrides: Partial<VersionSummary> = {}): VersionSummary {
   };
 }
 
-const PLAN: ChapterPlan = {
+const PLAN: ChapterPlanDocument = {
+  summary: '',
+  beats: [],
   requiredEntities: ['林默', '苏晚'],
   goalKeywords: ['保住封印'],
   obstacleKeywords: ['追兵逼近'],
@@ -109,7 +111,18 @@ function chapter(overrides: Partial<ChapterDetail> = {}): ChapterDetail {
     number: 1,
     title: '第一章 雨夜',
     status: 'planned',
-    plan: {},
+    plan: {
+      summary: '',
+      beats: [],
+      requiredEntities: [],
+      goalKeywords: [],
+      obstacleKeywords: [],
+    },
+    planRevision: 0,
+    planUpdatedAt: null,
+    bodyNeedsRevision: false,
+    markedPlanRevision: null,
+    markedCanonVersionId: null,
     wordCount: null,
     currentVersion: null,
     draft: null,
@@ -242,7 +255,13 @@ describe('ChapterStudio', () => {
         number: 2,
         title: '第二章 追兵',
         status: 'writing',
-        plan: { requiredEntities: [] },
+        plan: {
+          summary: '',
+          beats: [],
+          requiredEntities: [],
+          goalKeywords: [],
+          obstacleKeywords: [],
+        },
         draft: draft(),
         lease: lease(),
         latestEvaluation: evaluation(),
@@ -574,8 +593,7 @@ describe('ChapterStudio', () => {
     expect(viewer).not.toContain('AI 提案 · 不自动落盘');
   });
 
-  it('暂存门禁分叉：缺门禁、未通过、结论过期各有自己的文案与流程态', () => {
-    const missing = render({
+  it('暂存门禁分叉：缺门禁、未通过、结论过期各有自己的文案与流程态', () => {    const missing = render({
       chapterValue: chapter({ status: 'writing', draft: draft(), lease: lease() }),
     });
     expect(missing).toContain(
@@ -635,5 +653,145 @@ describe('ChapterStudio', () => {
     expect(stale).toContain(
       '<p class="action-hint">流程：保存草稿 → 跑五门禁 → 暂存 → 写入正典。</p>',
     );
+  });
+
+  it('计划卡显示 r 版本与摘要首行，编辑入口只给写角色', () => {
+    const planned = chapter({
+      planRevision: 3,
+      planUpdatedAt: '2026-10-23T18:07:00.000Z',
+      plan: {
+        ...PLAN,
+        summary: '林默赶到旧宅\n发现封印已经被换过',
+      },
+    });
+    const html = render({ chapterValue: planned });
+    expect(html).toContain('<p class="eyebrow">本章计划 r3 · 门禁上下文</p>');
+    expect(html).toContain('<p class="plan-summary">林默赶到旧宅</p>');
+    expect(html).toContain('>编辑计划</button>');
+    expect(html).toContain('>查看计划历史与差异</button>');
+    expect(html).toContain('核心人物 <strong>林默、苏晚</strong>');
+
+    const blank = render({ chapterValue: chapter({ planRevision: 0 }) });
+    expect(blank).toContain('<p class="plan-summary is-empty">未填写摘要</p>');
+    expect(blank).toContain('>填写计划</button>');
+
+    const viewer = render({ chapterValue: planned, meValue: me('viewer') });
+    expect(viewer).not.toContain('>编辑计划</button>');
+    expect(viewer).not.toContain('>填写计划</button>');
+    expect(viewer).toContain('>查看计划历史与差异</button>');
+
+    const archived = render({ chapterValue: chapter({ status: 'archived' }) });
+    expect(archived).not.toContain('>编辑计划</button>');
+    expect(archived).not.toContain('>填写计划</button>');
+  });
+
+  it('待改稿横幅：正典未变时提示未产生新版本，确认键只在正典可点', () => {
+    const current = version();
+    const html = render({
+      chapterValue: chapter({
+        status: 'canon',
+        wordCount: 1200,
+        currentVersion: current,
+        versions: [current],
+        bodyNeedsRevision: true,
+        markedPlanRevision: 2,
+        markedCanonVersionId: current.id,
+      }),
+      canonContent: '雨停在巷口。',
+    });
+
+    expect(html).toContain(
+      '<div class="studio-banner plan-mark-banner"><strong>计划 r2 已改，正典 v2 尚未处理</strong>',
+    );
+    expect(html).toContain('正文仍是标记前的正典；确认已处理只会清除待改稿标记，不改正文。 正典自标记后未产生新版本。');
+    expect(html).toContain('>查看差异</button>');
+    expect(html).toContain(
+      '<button type="button" class="button button-primary button-small" title="清除待改稿标记，不改正文">确认已处理</button>',
+    );
+
+    const moved = render({
+      chapterValue: chapter({
+        status: 'canon',
+        wordCount: 1200,
+        currentVersion: current,
+        versions: [current],
+        bodyNeedsRevision: true,
+        markedPlanRevision: 2,
+        markedCanonVersionId: 'version-1',
+      }),
+      canonContent: '雨停在巷口。',
+    });
+    expect(moved).toContain('计划 r2 已改，正典 v2 尚未处理');
+    expect(moved).not.toContain('正典自标记后未产生新版本。');
+
+    const notCanon = render({
+      chapterValue: chapter({
+        status: 'writing',
+        bodyNeedsRevision: true,
+        markedPlanRevision: 2,
+        markedCanonVersionId: current.id,
+      }),
+    });
+    expect(notCanon).toContain(
+      '<button type="button" class="button button-primary button-small" disabled="" title="需要章节处于正典状态">确认已处理</button>',
+    );
+
+    const viewer = render({
+      chapterValue: chapter({ status: 'canon', currentVersion: current, bodyNeedsRevision: true, markedPlanRevision: 2, markedCanonVersionId: current.id }),
+      meValue: me('viewer'),
+    });
+    expect(viewer).toContain('计划 r2 已改，正典 v2 尚未处理');
+    expect(viewer).not.toContain('>确认已处理</button>');
+  });
+
+  it('暂存后计划被改动：横幅点名 CONTEXT_CHANGED，重跑门禁后撤下', () => {
+    const staged = {
+      id: 'staged-1',
+      chapterId: 'chapter-1',
+      contentHash: 'draft-hash-1',
+      wordCount: 480,
+      evaluationId: 'eval-1',
+      stagedBy: 'user-1',
+      stagedByName: '林默',
+      stagedAt: '2026-10-23T18:10:00.000Z',
+    };
+    const banner = (
+      planUpdatedAt: string | null,
+      latestEvaluation: GateEvaluationView | null = evaluation(),
+    ) =>
+      render({
+        chapterValue: chapter({
+          status: 'staged',
+          draft: draft(),
+          lease: lease(),
+          latestEvaluation,
+          stagedDraft: staged,
+          planUpdatedAt,
+        }),
+      });
+
+    const html = banner('2026-10-23T18:11:00.000Z');
+    expect(html).toContain(
+      '<div class="studio-banner plan-stale-banner"><strong>门禁结论已失效，提交会返回 CONTEXT_CHANGED</strong>',
+    );
+    expect(html).toContain('暂存之后计划被改动，门禁证据绑定的上下文已过期；请重跑门禁后再提交。');
+
+    for (const planUpdatedAt of ['2026-10-23T18:07:00.000Z', '2026-10-23T18:06:00.000Z', null]) {
+      const quiet = banner(planUpdatedAt);
+      expect(quiet).not.toContain('CONTEXT_CHANGED');
+      expect(quiet).not.toContain('plan-stale-banner');
+    }
+
+    const rerun = evaluation({ id: 'eval-2', createdAt: '2026-10-23T18:12:00.000Z' });
+    expect(banner('2026-10-23T18:11:00.000Z', rerun)).not.toContain('plan-stale-banner');
+    expect(banner('2026-10-23T18:13:00.000Z', rerun)).toContain('plan-stale-banner');
+
+    const foreign = evaluation({
+      id: 'eval-3',
+      contentHash: 'other-hash',
+      createdAt: '2026-10-23T18:12:00.000Z',
+    });
+    expect(banner('2026-10-23T18:11:00.000Z', foreign)).toContain('plan-stale-banner');
+    expect(banner('2026-10-23T18:11:00.000Z', null)).toContain('plan-stale-banner');
   });
 });

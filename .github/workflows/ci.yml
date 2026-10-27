@@ -15,6 +15,8 @@ permissions:
 
 jobs:
   verify:
+    # 这个名字被 main 的分支保护钉成必需状态检查（context 必须是 "Typecheck and test"）。
+    # 改名会让这条检查永远不出现，所有 PR 都合不进去——加步骤可以，别改这里的 name。
     name: Typecheck and test
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -69,6 +71,15 @@ jobs:
 
       - name: Typecheck
         run: pnpm typecheck
+
+      - name: Endpoint coverage gate
+        run: pnpm check:endpoints
+
+      - name: Error code coverage gate
+        run: pnpm check:error-codes
+
+      - name: Schema drift gate
+        run: pnpm check:schema-drift
 
       - name: Test
         run: pnpm test

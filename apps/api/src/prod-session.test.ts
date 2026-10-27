@@ -22,13 +22,13 @@ const KEYS = [
   'MAIL_MODE',
   'LOG_LEVEL',
 ] as const;
-const PASSWORD = 'prod-cookie-password-1234';
+const PASSWORD = `prod-cookie-pass-${randomUUID()}`;
 const PRODUCTION_ENV: Record<string, string> = {
   NODE_ENV: 'production',
   // 生产守卫要求两把密钥都在且不相同（`env.ts:18-30`）；`DEV_AUTH=1` 是刻意留的，
-  // 生产必须无视它——那正是 M5-A 修掉的那个洞。
-  SESSION_SECRET: 'prod-test-session-secret',
-  MODEL_KEY_SECRET: 'prod-test-model-key-secret',
+  // 生产必须无视它——那正是 M5-A 修掉的那个洞。两把都按运行期生成，保证互不相同。
+  SESSION_SECRET: `prod-test-session-${randomUUID()}`,
+  MODEL_KEY_SECRET: `prod-test-model-${randomUUID()}`,
   DEV_AUTH: '1',
   MAIL_MODE: 'off',
   LOG_LEVEL: 'silent',

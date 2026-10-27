@@ -48,17 +48,28 @@ Windows 下请在 PowerShell 或 cmd 中设置同名的 `DATABASE_URL` 与 `TEST
 ```bash
 pnpm typecheck
 pnpm test
+pnpm check:endpoints
+pnpm check:error-codes
+pnpm check:schema-drift
 ```
 
-CI 会在 push 到 `main` 和 pull request 时执行同样的步骤：启动 PostgreSQL 17 + pgvector、迁移、种子、类型检查、全量测试。提交 PR 前请确保本地或 CI 通过。
+三个 `check:*` 是自建的静态闸门，不需要数据库，本地几秒内跑完：
 
-前端目前没有独立的自动化测试框架。涉及前端行为变更时，至少运行类型检查，并在 PR 中写明手工验收步骤与结果。
+- `check:endpoints` —— 每条路由都要被测试引用过 URL 形状，否则失败。
+- `check:error-codes` —— 每个错误码都要有测试断言，否则失败。
+- `check:schema-drift` —— 迁移（唯一真相）与 `packages/db/src/schema.ts` 的表名/列名必须一致，否则失败。
+
+三个闸门都带**双向过期检查**：允许清单里已经失效的条目同样报错，所以不要把它当永久免检通行证。
+
+CI 会在 push 到 `main` 和 pull request 时执行同样的步骤：启动 PostgreSQL 17 + pgvector、迁移、种子、类型检查、三个静态闸门、全量测试。提交 PR 前请确保本地或 CI 通过。
+
+前端有独立的自动化测试：`apps/web` 下 42 个测试文件 / 341 项（vitest，不装 jsdom），用 `renderToStaticMarkup` 断言渲染输出，交互逻辑抽到 `plan.ts` 这类纯模块里单独断言。注意浏览器代码不要从 `@yunshuo/domain` 这个 barrel 取运行时值——它会带进 `node:crypto`，类型检查能过但浏览器整页白屏；`apps/web/src/browser-imports.test.ts` 会拦下这种写法。
 
 ## 数据库与迁移
 
 - 迁移文件位于 `packages/db/migrations/`，按序号命名，例如 `0015_xxx.sql`。
 - **不要修改已经执行过的迁移**；新增结构变更请添加新迁移。
-- 同步更新 `packages/db/src/schema.ts`、相关契约与测试。
+- 同步更新 `packages/db/src/schema.ts`、相关契约与测试，然后运行 `pnpm check:schema-drift`。`schema.ts` 没有运行时调用方（所有查询都走 postgres.js 的 `sql` 模板），它漂移了不会有任何测试变红，只能靠这个闸门兜住。
 - 涉及并发、唯一约束或权限边界的变更，请补充集成测试，而不是只改 SQL。
 - 测试数据必须自行创建并清理，不要依赖或改写演示作品。
 

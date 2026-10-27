@@ -28,6 +28,29 @@ const CODE_SHAPE = /^[A-Z][A-Z0-9_]{2,}$/;
 const DECL_BEFORE = /(?:export\s+)?(?:async\s+)?function\s+$/;
 const verbose = process.argv.includes('--verbose');
 
+// --check 模式：未断言的码里，凡是不在允许清单中的，让脚本以退出码 1 结束，作为 CI 闸门。
+// 允许清单只收“产品行为正确、但当前测试形态构造不出来”的码，每条必须写清构造不出来的原因；
+// 一个码一旦在测试里被断过，留在清单里就成了免检通行证，同样报错要求删除。
+//
+// 注意：本文件不在筛子的测试文件范围里，所以这里的码名是对象键、不会被算成断言。
+// 但不要在 *.test.ts 的注释里给码名加引号——筛子把任何引号包着的码都算成“测试里引用过”，
+// 那会凭空抹掉一条空白。仓库已有先例见 apps/api/src/m5b-oidc-failure.test.ts 顶部。
+const ALLOWLIST = {
+  AI_NO_ATTEMPT:
+    '要求在一次生成请求内部、发起调用之前观察到服务商列表发生变化（ledger-suggestion-service.ts:1066）。' +
+    '两次读取之间的并发配置变更正是该码要防的竞态，单进程测试构造不出这个窗口。',
+  INTENT_RACE:
+    '意图插入没有返回行、按幂等键回查也查不到，即那一行在两次读之间被并发事务改掉（commit-service.ts:99、rollback-service.ts:123）。' +
+    'HTTP 面单线程构造不出并发窗口，这一条是唯一冲突的兜底。',
+  LEDGER_WORK_REQUIRED:
+    '要求台账条目没有所属作品（ledger-suggestion-service.ts:846、:1326、ledger-service.ts:329）。' +
+    'DB CHECK 与契约层都不允许写出这种条目，要构造只能绕过两层防护直接改库，测到的不是产品行为。',
+  OIDC_IDENTITY_CONFLICT:
+    '三处抛出（oidc-service.ts:414、:423、:431）都是并发回调窗口或上游身份数据异常的唯一冲突兜底，' +
+    'HTTP 面单线程构造不出来；分诊见 apps/api/src/m5b-oidc-failure.test.ts 顶部与审计报告 §三十七、§四十三。',
+};
+const check = process.argv.includes('--check');
+
 const files = sources.map((file) => ({
   rel: file.split(path.sep).join('/'),
   text: fs.readFileSync(file, 'utf8'),
@@ -356,3 +379,27 @@ console.log(
     '未命中也要人工确认：测试可能只断 HTTP 状态或文案、可能把码拼进变量或模板串、' +
     '也可能是根本不该被 HTTP 触达的内部防御分支。宁可多问一次，不要当成结论。',
 );
+
+if (check) {
+  const names = unasserted.map((entry) => entry.code);
+  const blocked = names.filter((code) => !(code in ALLOWLIST));
+  const stale = Object.keys(ALLOWLIST).filter((code) => !names.includes(code));
+  console.log('\n闸门判定（--check）：');
+  console.log(`  未断言 ${names.length} 个；允许清单 ${Object.keys(ALLOWLIST).length} 个。`);
+  for (const code of blocked) {
+    const entry = codes.get(code);
+    console.log(`  失败：${code} 从未在任何测试里被当作字面量断过，且不在允许清单里。`);
+    console.log(`        位点：${[...entry.sites].join(', ')}`);
+    console.log(`        文案：${[...entry.messages].join(' / ') || '（无字面量文案）'}`);
+  }
+  for (const code of stale) {
+    const why = codes.has(code) ? '已经能在测试里断到' : '在源码里已经不存在了';
+    console.log(`  失败：允许清单里的 ${code} ${why}，条目应当删除。`);
+    console.log(`        当时登记的原因：${ALLOWLIST[code]}`);
+  }
+  if (blocked.length === 0 && stale.length === 0) {
+    console.log('  通过：所有错误码都在测试里断过，允许清单为空或每条都仍然必要。');
+  } else {
+    process.exitCode = 1;
+  }
+}

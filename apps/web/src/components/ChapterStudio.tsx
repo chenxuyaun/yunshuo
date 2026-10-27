@@ -16,6 +16,7 @@ import {
   acquireLease,
   getVersion,
   releaseLease,
+  resolveBodyRevision,
   runAudits,
   runGates,
   saveDraft,
@@ -24,6 +25,7 @@ import {
   unstageDraft,
 } from '../api.js';
 import { countChars, formatClock, shortHash } from '../format.js';
+import { planChangedAfterEvidence, planSummaryHeadline } from '../plan.js';
 import { DEMO_CHAPTER_NUMBER, DEMO_DRAFT } from '../demo.js';
 import { AiProposalPanel } from './AiProposalPanel.js';
 import { ChapterStatusBadge } from './Badge.js';
@@ -36,6 +38,7 @@ import { VersionList } from './VersionList.js';
 import { IndexStatusCard } from './IndexStatusCard.js';
 import { RetrievalPanel } from './RetrievalPanel.js';
 import { CommitDialog } from './CommitDialog.js';
+import { PlanDialog } from './PlanDialog.js';
 import { RollbackDialog } from './RollbackDialog.js';
 import { WaiverPanel } from './WaiverPanel.js';
 
@@ -49,6 +52,7 @@ type Busy =
   | 'unstage'
   | 'revision'
   | 'abandon'
+  | 'resolve'
   | null;
 
 interface Notice {
@@ -74,6 +78,7 @@ const ACTION_LABELS: Record<Exclude<Busy, null>, string> = {
   unstage: '撤回暂存',
   revision: '开始修订',
   abandon: '放弃修订',
+  resolve: '确认已处理改稿',
 };
 
 function formatError(error: unknown): string {
@@ -92,6 +97,7 @@ export function ChapterStudio({ me, chapter, onOpenVersion, onOpenChapter }: Pro
   const [auditReport, setAuditReport] = useState<AuditReport | null>(null);
   const [commitOpen, setCommitOpen] = useState(false);
   const [rollbackTarget, setRollbackTarget] = useState<VersionSummary | null>(null);
+  const [planDialogTab, setPlanDialogTab] = useState<'plan' | 'history' | null>(null);
   const dirtyRef = useRef(false);
   const lastDraftIdRef = useRef<string | null>(chapter.draft?.id ?? null);
 
@@ -106,6 +112,23 @@ export function ChapterStudio({ me, chapter, onOpenVersion, onOpenChapter }: Pro
   const draft = chapter.draft;
   const evaluation = chapter.latestEvaluation;
   const staged = chapter.stagedDraft;
+  const canEditPlan = roleCanWrite && chapter.status !== 'archived';
+  const planHasContent =
+    chapter.plan.summary.trim() !== '' ||
+    chapter.plan.beats.length > 0 ||
+    chapter.plan.requiredEntities.length > 0 ||
+    chapter.plan.goalKeywords.length > 0 ||
+    chapter.plan.obstacleKeywords.length > 0;
+  const stagedEvidenceAt =
+    evaluation && staged && evaluation.contentHash === staged.contentHash
+      ? evaluation.createdAt
+      : staged?.stagedAt;
+  const stagedPlanChanged = stagedEvidenceAt
+    ? planChangedAfterEvidence(chapter.planUpdatedAt, stagedEvidenceAt)
+    : false;
+  const canonUnchangedSinceMark =
+    chapter.markedCanonVersionId !== null &&
+    chapter.markedCanonVersionId === chapter.currentVersion?.id;
 
   const currentVersionQuery = useQuery({
     queryKey: ['version', chapter.currentVersion?.id ?? 'none'],
@@ -257,6 +280,28 @@ export function ChapterStudio({ me, chapter, onOpenVersion, onOpenChapter }: Pro
         body: '章节回到当前正典，正典正文未被改写；下次修订会从当前正典重新生成草稿。',
       });
     });
+  }
+
+  function handleResolveBodyRevision() {
+    if (!isCanon || !roleCanWrite) return;
+    const markedPlanRevision = chapter.markedPlanRevision;
+    const versionId = chapter.currentVersion?.id;
+    if (markedPlanRevision === null || !versionId) return;
+    const warning = canonUnchangedSinceMark
+      ? '正典自标记后未产生新版本，确认后只会清除待改稿标记，正文不会被改写。'
+      : '确认后只会清除待改稿标记，正文不会被改写。';
+    if (!window.confirm(`${warning}继续？`)) return;
+    void perform(
+      'resolve',
+      () => resolveBodyRevision(chapter.id, { planRevision: markedPlanRevision, addressedCanonVersionId: versionId }),
+      () => {
+        setNotice({
+          tone: 'success',
+          title: '已确认计划改动已处理',
+          body: `待改稿标记已清除；正典 v${chapter.currentVersion?.versionNo ?? '?'} 未改写，后续门禁改用计划 r${chapter.planRevision} 的上下文。`,
+        });
+      },
+    );
   }
 
   function handleRolledBack(result: RollbackResponse, target: VersionSummary) {
@@ -451,7 +496,22 @@ export function ChapterStudio({ me, chapter, onOpenVersion, onOpenChapter }: Pro
           </div>
         </div>
         <div className="plan-card">
-          <p className="eyebrow">本章计划（门禁上下文）</p>
+          <div className="plan-card-head">
+            <p className="eyebrow">本章计划 r{chapter.planRevision} · 门禁上下文</p>
+            {canEditPlan ? (
+              <button
+                type="button"
+                className="button button-quiet button-small"
+                onClick={() => setPlanDialogTab('plan')}
+                title="改计划不需要编辑租约，也不会改正文"
+              >
+                {planHasContent ? '编辑计划' : '填写计划'}
+              </button>
+            ) : null}
+          </div>
+          <p className={`plan-summary${planHasContent ? '' : ' is-empty'}`}>
+            {planSummaryHeadline(chapter.plan)}
+          </p>
           <p>
             核心人物 <strong>{planEntities || '未设置'}</strong>
           </p>
@@ -459,6 +519,13 @@ export function ChapterStudio({ me, chapter, onOpenVersion, onOpenChapter }: Pro
             目标 <strong>{planGoals || '未设置'}</strong> · 阻碍{' '}
             <strong>{planObstacles || '未设置'}</strong>
           </p>
+          <button
+            type="button"
+            className="plan-history-link"
+            onClick={() => setPlanDialogTab('history')}
+          >
+            查看计划历史与差异
+          </button>
         </div>
       </header>
 
@@ -565,6 +632,46 @@ export function ChapterStudio({ me, chapter, onOpenVersion, onOpenChapter }: Pro
         <div className="studio-banner failed-banner">
           <strong>上次提交失败</strong>
           <p>正典未被改动。请核对暂存稿与门禁证据后重试提交。</p>
+        </div>
+      ) : null}
+
+      {chapter.bodyNeedsRevision ? (
+        <div className="studio-banner plan-mark-banner">
+          <strong>
+            计划 r{chapter.markedPlanRevision ?? '?'} 已改，正典 v
+            {chapter.currentVersion?.versionNo ?? '?'} 尚未处理
+          </strong>
+          <p>
+            正文仍是标记前的正典；确认已处理只会清除待改稿标记，不改正文。
+            {canonUnchangedSinceMark ? ' 正典自标记后未产生新版本。' : ''}
+          </p>
+          <div className="plan-mark-actions">
+            <button
+              type="button"
+              className="button button-quiet button-small"
+              onClick={() => setPlanDialogTab('history')}
+            >
+              查看差异
+            </button>
+            {roleCanWrite ? (
+              <button
+                type="button"
+                className="button button-primary button-small"
+                onClick={handleResolveBodyRevision}
+                disabled={busy !== null || !isCanon}
+                title={isCanon ? '清除待改稿标记，不改正文' : '需要章节处于正典状态'}
+              >
+                {busy === 'resolve' ? '确认中……' : '确认已处理'}
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {stagedPlanChanged ? (
+        <div className="studio-banner plan-stale-banner">
+          <strong>门禁结论已失效，提交会返回 CONTEXT_CHANGED</strong>
+          <p>暂存之后计划被改动，门禁证据绑定的上下文已过期；请重跑门禁后再提交。</p>
         </div>
       ) : null}
 
@@ -856,6 +963,24 @@ export function ChapterStudio({ me, chapter, onOpenVersion, onOpenChapter }: Pro
           target={rollbackTarget}
           onClose={() => setRollbackTarget(null)}
           onRolledBack={handleRolledBack}
+        />
+      ) : null}
+
+      {planDialogTab ? (
+        <PlanDialog
+          me={me}
+          chapter={chapter}
+          initialTab={planDialogTab}
+          onClose={() => setPlanDialogTab(null)}
+          onSaved={(state) => {
+            setNotice({
+              tone: 'success',
+              title: `计划已保存为 r${state.planRevision}`,
+              body: state.bodyNeedsRevision
+                ? `已标记正文待改：正典 v${chapter.currentVersion?.versionNo ?? '?'} 未改写，写作台会出现待改稿横幅。`
+                : '正文、草稿与正典均未改动。',
+            });
+          }}
         />
       ) : null}
     </section>

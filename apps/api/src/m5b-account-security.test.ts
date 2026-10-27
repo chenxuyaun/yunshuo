@@ -32,8 +32,10 @@ interface ErrorBody {
 
 const RUN_ID = randomUUID().slice(0, 8);
 const EMAIL_SUFFIX = `@m5b-${RUN_ID}.test`;
-const PASSWORD = 'correct-horse-battery-staple';
-const NEW_PASSWORD = 'another-long-password-42';
+const PASSWORD = `m5b-pass-${randomUUID()}`;
+const NEW_PASSWORD = `m5b-new-pass-${randomUUID()}`;
+// 必须是一个"确定不等于正确口令"的值：随机生成保证它与 PASSWORD 永不相同。
+const WRONG_PASSWORD = `m5b-wrong-${randomUUID()}`;
 
 const dbAvailable = await sql`SELECT 1`
   .then(() => true)
@@ -259,7 +261,7 @@ suite('M5-B 账号安全：邮件投递、密码修改与重置', () => {
     const second = await login(email);
 
     const wrong = await call<ErrorBody>('POST', '/api/auth/password/change', first, {
-      currentPassword: 'definitely-wrong-password',
+      currentPassword: WRONG_PASSWORD,
       newPassword: NEW_PASSWORD,
     });
     expectError(wrong, 400, 'CURRENT_PASSWORD_INVALID');
@@ -495,8 +497,8 @@ suite('M5-B 账号安全：邮件投递、密码修改与重置', () => {
       // 当前密码错的时候即使两个值相同也先响 CURRENT_PASSWORD_INVALID——不先把旧密码验一遍，
       // 服务端无从知道"相同"是笔误还是攻击。
       const wrongButSame = await call<ErrorBody>('POST', '/api/auth/password/change', mine, {
-        currentPassword: 'definitely-wrong-password',
-        newPassword: 'definitely-wrong-password',
+        currentPassword: WRONG_PASSWORD,
+        newPassword: WRONG_PASSWORD,
       });
       expectError(wrongButSame, 400, 'CURRENT_PASSWORD_INVALID');
       expect(await changeEvents('failure')).toBe('1');
@@ -575,7 +577,7 @@ suite('M5-B 账号安全：邮件投递、密码修改与重置', () => {
 
         pending = call<ErrorBody>('POST', '/api/auth/password/change', mine, {
           currentPassword: PASSWORD,
-          newPassword: 'third-long-password-77',
+          newPassword: `m5b-third-${randomUUID()}`,
         });
         expect(await waitUntil(requestParkedOnRowLock, 5_000)).toBe(true);
         release();
@@ -597,7 +599,7 @@ suite('M5-B 账号安全：邮件投递、密码修改与重置', () => {
         const afterWin = await login(email, NEW_PASSWORD);
         const normal = await call<ChangePasswordResponse>('POST', '/api/auth/password/change', afterWin, {
           currentPassword: NEW_PASSWORD,
-          newPassword: 'fourth-long-password-88',
+          newPassword: `m5b-fourth-${randomUUID()}`,
         });
         expect(normal.status).toBe(200);
         expect(await changeEvents('success')).toBe('1');

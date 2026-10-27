@@ -32,6 +32,10 @@ export function conflict(code: string, message: string, details?: unknown): AppE
   return new AppError(409, code, message, details);
 }
 
+export function unprocessable(code: string, message: string, details?: unknown): AppError {
+  return new AppError(422, code, message, details);
+}
+
 export function badGateway(code: string, message: string): AppError {
   return new AppError(502, code, message);
 }
