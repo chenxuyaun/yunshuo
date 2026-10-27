@@ -5,6 +5,14 @@ const apiSrc = 'apps/api/src';
 const routesDir = path.join(apiSrc, 'routes');
 const workerSrc = 'apps/worker/src';
 
+// --check 模式：未命中且不在允许清单里的路由让脚本以退出码 1 结束，作为 CI 闸门。
+// 允许清单必须写清“为什么这条路由的 URL 形状无法出现在测试里”；条目一旦不再需要
+// （该路由已经能被引用到）同样报错，防止清单随时间腐烂成一张免检通行证。
+const ALLOWLIST = {
+  // 'GET /api/example/:id': '原因',
+};
+const check = process.argv.includes('--check');
+
 function readTests(dir) {
   if (!fs.existsSync(dir)) return [];
   return fs
@@ -96,3 +104,26 @@ console.log(
     '因为跨行拼接、把 URL 存进变量或走前端 api.ts 调用都会漏判（漏判方向偏保守，宁可多问一次）。' +
     '按表名/标识符 grep 不能代替按行为与端点判断覆盖。',
 );
+
+if (check) {
+  const keys = uncovered.map((row) => `${row.method} ${row.path}`);
+  const blocked = keys.filter((key) => !(key in ALLOWLIST));
+  const stale = Object.keys(ALLOWLIST).filter((key) => !keys.includes(key));
+  console.log('\n闸门判定（--check）：');
+  console.log(`  未命中 ${keys.length} 条；允许清单 ${Object.keys(ALLOWLIST).length} 条。`);
+  for (const key of blocked) {
+    console.log(`  失败：${key} 没有任何测试引用其 URL 形状，且不在允许清单里。`);
+  }
+  for (const key of stale) {
+    const why = endpoints.some((row) => `${row.method} ${row.path}` === key)
+      ? '已经能被测试引用到'
+      : '在路由里已经不存在了';
+    console.log(`  失败：允许清单里的 ${key} ${why}，条目应当删除。`);
+    console.log(`        当时登记的原因：${ALLOWLIST[key]}`);
+  }
+  if (blocked.length === 0 && stale.length === 0) {
+    console.log('  通过：所有路由都有测试引用，允许清单为空或每条都仍然必要。');
+  } else {
+    process.exitCode = 1;
+  }
+}

@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   verify:
-    name: Typecheck and test
+    name: Typecheck, static gates and test
     runs-on: ubuntu-24.04
     timeout-minutes: 20
 
@@ -69,6 +69,15 @@ jobs:
 
       - name: Typecheck
         run: pnpm typecheck
+
+      - name: Endpoint coverage gate
+        run: pnpm check:endpoints
+
+      - name: Error code coverage gate
+        run: pnpm check:error-codes
+
+      - name: Schema drift gate
+        run: pnpm check:schema-drift
 
       - name: Test
         run: pnpm test
