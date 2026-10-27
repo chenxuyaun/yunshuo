@@ -15,7 +15,7 @@
 | 当前分支与 main 的关系 | 当前分支 HEAD `c816acb` **是 `origin/main` 的祖先**——分支上所有**已提交**内容都已在 main 里。origin/main 比 HEAD 多的唯一一个提交就是 PR #7 的 merge commit 本身 |
 | 本地 `main` | 停在 `bed54c5`，落后于 `origin/main`（本地 main 是陈旧引用，不是真相） |
 | 未提交的工作区改动 | **62 项**。其中包含**整个 P0 动线**：迁移 `0021_plan_and_structure.sql`、`apps/api/src/routes/plan.ts`、`routes/works.ts`、`services/plan-service.ts`、`services/work-structure-service.ts`、`packages/domain/src/plan.ts`、`apps/web/src/components/PlanDialog.tsx`、`WorkStructureDialog.tsx`、`apps/web/src/plan.ts`、两个前端测试文件、`scripts/schema-drift.mjs`，以及 `AGENTS.md`、`docs/adr/`、四份设计文档 |
-| 另有未跟踪目录 | `.mimosa/`（安全钩子的会话状态产物，与代码无关，不应进版本库） |
+| 另有未跟踪目录 | `.mimosa/`（安全钩子的会话状态产物，与代码无关，不应进版本库）。**2026-10-27 起已进 `.gitignore` 第 13 行**（`d23a8d1` 引入），见文末补记 |
 
 **要点：P0 的代码与迁移已经在工作区里，且尚未提交到任何分支。** 这是 D7 真正的约束——不是"分支脏了"，而是"有一批已完成但未落盘的改动等着归位"。
 
@@ -40,9 +40,17 @@
 
 ## 拍这条 ADR 时要一起定的两件事
 
-1. **P0 的改动先提交还是先放着。** 62 项里混着 P0 代码、四份设计文档、`AGENTS.md`、`scripts/schema-drift.mjs` 与 `docs/adr/`。按硬规则 13，这些至少该拆成"P0 动线实现"与"闸门 + 文档"两个提交，而不是一次全推。
-2. **`.mimosa/` 要不要进 `.gitignore`。** 它是钩子状态，不属于仓库内容。当前它不在 `.gitignore` 里，`git add -A` 会把它带进去。
+1. **P0 的改动先提交还是先放着。** 62 项里混着 P0 代码、四份设计文档、`AGENTS.md`、`scripts/schema-drift.mjs` 与 `docs/adr/`。按硬规则 13，这些至少该拆成"P0 动线实现"与"闸门 + 文档"两个提交，而不是一次全推。**→ 已落地**：PR #8 即按此拆分（`62f70c6` 凭据清理、`943cd5b` P0 动线、`d23a8d1` 闸门与文档、`2bf41e0` CI 修正）。
+2. **`.mimosa/` 要不要进 `.gitignore`。** 它是钩子状态，不属于仓库内容。当前它不在 `.gitignore` 里，`git add -A` 会把它带进去。**→ 已落地**：2026-10-27 起 `.gitignore` 第 13 行含 `.mimosa/`；同一批还在 `.dockerignore` 补了 `.mimosa` / `**/.mimosa`（体积实测见文末补记）。
 
 ## 回退
 
 分支策略本身没有"回退"——它只有"还没定"与"定了"。定了之后若要改（例如发现基座不该压在这条分支上），代价是 rebase 或重开分支，越晚越贵。这是它必须**先**拍的原因。
+
+## 补记（2026-10-27）
+
+> 只记录事实变化，不改上面的选项与建议。
+
+- 「要一起定的两件事」均已落地：P0 按拆分提交进 PR #8（`62f70c6` / `943cd5b` / `d23a8d1` / `2bf41e0`）；`.mimosa/` 已进 `.gitignore`（第 13 行）。
+- **D7 已按选项 (a) 实际执行**：P0 先在原分支提交并走 PR #8 合并；基座各层随后从 main 各起一条短分支——`feat/model-base-l0`（PR #9）、`docs/l2-run-state-machine`（PR #10）、`feat/l1a-tool-surface`（PR #11）、`test/l1a-asof-vector-path`（PR #12）。「阻塞 L0」已被这条实际路径解除。**把状态行改成「已拍板」仍属人工动作**，本 ADR 的正文与状态保持原样。
+- `.mimosa/` 不只是版本库噪音，也是 docker 构建上下文里的大头：本机字节和 56.50 MB，占全量 28.3%；实测见 [ADR-0008 的 L1a 补记](0008-l1-split.md)。
