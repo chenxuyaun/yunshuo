@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { createServer, type Server } from 'node:http';
 import { closeDb, jsonValue, sql } from '@yunshuo/db';
 import type { Role } from '@yunshuo/domain';
 import { buildLexicalText } from '@yunshuo/retrieval';
@@ -16,6 +17,10 @@ import { searchToolHandler } from './search-handler.js';
 
 const RUN_ID = randomUUID().slice(0, 8);
 const QUERY = '封印';
+// 向量桩的模型名与维度必须与 chunk_embeddings 里写的逐字一致，
+// 否则 searchCanon 会判定「启用嵌入模型与索引模型不一致」而静默退回纯词法路。
+const EMBEDDING_MODEL = 'l1a-stub-embed';
+const EMBEDDING_DIMENSIONS = 4;
 
 const dbAvailable = await sql`SELECT 1`
   .then(() => true)
@@ -28,6 +33,10 @@ const suite = dbAvailable ? describe : describe.skip;
 
 function contentHash(content: string): string {
   return createHash('sha256').update(content, 'utf8').digest('hex');
+}
+
+function vectorLiteral(vector: number[]): string {
+  return `[${vector.join(',')}]`;
 }
 
 function authFor(params: { workspaceId: string; userId: string; role: Role }): AuthContext {
@@ -72,6 +81,12 @@ suite('L1a 工具 handler', () => {
   let ownerB: AuthContext;
   let billingA: AuthContext;
   const testUserIds: string[] = [];
+
+  // 嵌入桩：只实现 POST /embeddings，把任何输入都嵌成 [1,0,0,0]。
+  // 服务商行直接插库、api_key_ciphertext 留空——桩不校验授权头，测试里也就不需要任何凭据字面量。
+  let embeddingStub: Server | null = null;
+  let embeddingProviderId = '';
+  const stubInputs: string[] = [];
 
   const canonContent: Record<number, string> = {};
 
@@ -154,6 +169,17 @@ suite('L1a 工具 handler', () => {
       VALUES (${chapterId}, ${versionId}, 'ready', 1, NULL, NULL, NULL, now())
     `;
     return { chapterId, versionId };
+  }
+
+  /** 给一章的正典切块挂上向量。chunk_embeddings 的 chunk_id 是主键，每块最多一行。 */
+  async function attachCanonEmbedding(chapterId: string, vector: number[]): Promise<void> {
+    await sql`
+      INSERT INTO chunk_embeddings (chunk_id, provider_id, model, dimensions, embedding)
+      SELECT ch.id, ${embeddingProviderId}, ${EMBEDDING_MODEL}, ${EMBEDDING_DIMENSIONS},
+             ${vectorLiteral(vector)}::vector
+      FROM canon_chunks ch
+      WHERE ch.chapter_id = ${chapterId}
+    `;
   }
 
   async function createCharacterEntry(params: {
@@ -263,8 +289,61 @@ suite('L1a 工具 handler', () => {
   beforeAll(async () => {
     process.env.LOG_LEVEL = 'silent';
 
+    embeddingStub = createServer((request, response) => {
+      let raw = '';
+      request.on('data', (chunk) => {
+        raw += chunk;
+      });
+      request.on('end', () => {
+        if (!(request.url ?? '').endsWith('/embeddings')) {
+          response.writeHead(404, { 'content-type': 'application/json' });
+          response.end(JSON.stringify({ error: { message: 'L1a 嵌入桩只实现 /embeddings' } }));
+          return;
+        }
+        let body: { input?: unknown; model?: unknown } | null = null;
+        try {
+          body = raw ? (JSON.parse(raw) as { input?: unknown; model?: unknown }) : null;
+        } catch {
+          body = null;
+        }
+        const inputs = Array.isArray(body?.input)
+          ? body.input.map((item) => String(item))
+          : [String(body?.input ?? '')];
+        stubInputs.push(...inputs);
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(
+          JSON.stringify({
+            object: 'list',
+            model: typeof body?.model === 'string' ? body.model : EMBEDDING_MODEL,
+            data: inputs.map((_, index) => ({
+              object: 'embedding',
+              index,
+              embedding: [1, 0, 0, 0],
+            })),
+            usage: { prompt_tokens: inputs.length * 8, total_tokens: inputs.length * 8 },
+          }),
+        );
+      });
+    });
+    await new Promise<void>((resolve) => {
+      embeddingStub?.listen(0, '127.0.0.1', resolve);
+    });
+    const stubAddress = embeddingStub.address();
+    if (!stubAddress || typeof stubAddress === 'string') {
+      throw new Error('L1a 嵌入桩未能绑定到 127.0.0.1 端口');
+    }
+
     workspaceA = await createWorkspace(`L1a 工具 A ${RUN_ID}`);
     workspaceB = await createWorkspace(`L1a 工具 B ${RUN_ID}`);
+
+    embeddingProviderId = randomUUID();
+    await sql`
+      INSERT INTO model_providers (id, workspace_id, name, base_url, model, purpose, is_enabled, priority)
+      VALUES (
+        ${embeddingProviderId}, ${workspaceA}, 'L1a 嵌入桩',
+        ${`http://127.0.0.1:${stubAddress.port}/v1`}, ${EMBEDDING_MODEL}, 'embedding', true, 1
+      )
+    `;
 
     const authorAId = await createUser(workspaceA, 'author');
     const ownerBId = await createUser(workspaceB, 'owner');
@@ -282,6 +361,12 @@ suite('L1a 工具 handler', () => {
     chapterA2 = (await createChapter(workA, workARecord.volumeId, 2)).chapterId;
     chapterA3 = (await createChapter(workA, workARecord.volumeId, 3)).chapterId;
     chapterB1 = (await createChapter(workB, workBRecord.volumeId, 1)).chapterId;
+
+    // 三章都挂向量（同一个查询向量下分数依次递减，但都在默认阈值 0.4 之上），
+    // 这样「只有向量命中」的场景才能检验 as-of 上界是否也作用在向量路上。
+    await attachCanonEmbedding(chapterA1, [1, 0, 0, 0]);
+    await attachCanonEmbedding(chapterA2, [0.9, 0.1, 0, 0]);
+    await attachCanonEmbedding(chapterA3, [0.8, 0.2, 0, 0]);
 
     await createCharacterEntry({
       workspaceId: workspaceA,
@@ -333,6 +418,12 @@ suite('L1a 工具 handler', () => {
     if (testUserIds.length > 0) {
       await sql`DELETE FROM sessions WHERE user_id IN ${sql(testUserIds)}`;
       await sql`DELETE FROM users WHERE id IN ${sql(testUserIds)}`;
+    }
+    if (embeddingStub) {
+      const stubToClose = embeddingStub;
+      await new Promise<void>((resolve, reject) => {
+        stubToClose.close((error) => (error ? reject(error) : resolve()));
+      });
     }
     await closeDb();
   });
@@ -452,6 +543,38 @@ suite('L1a 工具 handler', () => {
       searchToolInputSchema.parse({ query: QUERY, workId: workA, asOfChapterNumber: 1 }),
     );
     expect(asOfOne.results.map((hit) => hit.chapterNumber)).toEqual([1]);
+  });
+
+  it('asOfChapterNumber 同样约束向量路：词法打不中时结果全来自向量，且仍被写作位截断', async () => {
+    // 'zzz' 不在任何正文里（正文只有中文），所以这个词的结果集只可能来自向量路；
+    // 若向量路没跑（例如嵌入失败退回词法），下面第一条断言就会先红。
+    const vectorOnlyQuery = 'zzz';
+    const withoutAsOf = await searchToolHandler(
+      authorA,
+      searchToolInputSchema.parse({ query: vectorOnlyQuery, workId: workA }),
+    );
+    expect(stubInputs).toContain(vectorOnlyQuery);
+    expect(withoutAsOf.results.map((hit) => hit.chapterNumber).sort()).toEqual([1, 2, 3]);
+    for (const hit of withoutAsOf.results) {
+      expect(hit.lexicalRank).toBeNull();
+      expect(hit.vectorRank).not.toBeNull();
+      // 桩向量与插入向量夹角极小，三条都远高于默认阈值 0.4，因此命中集不因阈值而缩水
+      expect(hit.vectorScore).toBeGreaterThan(0.9);
+    }
+    expect(withoutAsOf.ledgerResults).toEqual([]);
+
+    const asOfTwo = await searchToolHandler(
+      authorA,
+      searchToolInputSchema.parse({
+        query: vectorOnlyQuery,
+        workId: workA,
+        asOfChapterNumber: 2,
+      }),
+    );
+    // 向量路的 SQL 同样带 AND c.number <= 2；不生效的话第 3 章会照旧出现（它的分数在阈值之上）
+    expect(asOfTwo.results.map((hit) => hit.chapterNumber).sort()).toEqual([1, 2]);
+    expect(asOfTwo.results.every((hit) => hit.vectorRank !== null)).toBe(true);
+    expect(asOfTwo.scope.asOfChapterNumber).toBe(2);
   });
 
   it('excludeChapterId 只作用于正典半：排除账本条目来源章，账本命中照旧', async () => {
