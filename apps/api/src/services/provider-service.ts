@@ -94,6 +94,30 @@ function normalizeBaseUrl(value: string): string {
   return value.replace(/\/+$/, '');
 }
 
+// 服务端会按这个地址主动出网，所以先把目标钉死：只允许 http/https、不内嵌凭据、
+// 不指向云元数据/链路本地地址。环回与私网故意放行——本机或内网自建推理端点
+// （Ollama、LM Studio）是受支持的用法，L0 探针本身就要打本机 Ollama。
+// 返回结构化 URL，拼接请求路径交给 URL 解析器，不再手工拼字符串。
+function assertModelEndpointUrl(value: string): URL {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw badRequest('VALIDATION', '模型端点不是合法 URL');
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw badRequest('VALIDATION', '模型端点只支持 http/https');
+  }
+  if (url.username !== '' || url.password !== '') {
+    throw badRequest('VALIDATION', '模型端点地址不能内嵌凭据');
+  }
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (host === '169.254.169.254' || host.startsWith('169.254.')) {
+    throw badRequest('VALIDATION', '模型端点不能指向云元数据地址');
+  }
+  return url;
+}
+
 function nullableNumber(value: string | number | null): number | null {
   if (value === null) return null;
   const parsed = typeof value === 'number' ? value : Number(value);
@@ -157,6 +181,14 @@ function assertCanView(role: Role): void {
 function assertCanManage(role: Role): void {
   if (role !== 'owner') {
     throw forbidden('仅所有者可以新增、修改或删除模型服务商');
+  }
+}
+
+// 拉清单会让服务端按请求里的地址主动出网，属于"替调用者发起一次外部请求"，
+// 所以口径跟写服务商一致收到所有者，而不是跟"查看配置"一样放开给主笔。
+function assertCanDiscoverModels(role: Role): void {
+  if (role !== 'owner') {
+    throw forbidden('仅所有者可以拉取模型清单');
   }
 }
 
@@ -436,9 +468,10 @@ export function redactSecret(text: string, secret: string | null): string {
   return text.split(secret).join('••••');
 }
 
-async function requestModelList(baseUrl: string, apiKey: string | null): Promise<ModelListFetch> {
+async function requestModelList(endpoint: URL, apiKey: string | null): Promise<ModelListFetch> {
   try {
-    const response = await fetch(`${baseUrl}/models`, {
+    const target = new URL('models', `${endpoint.href.replace(/\/+$/, '')}/`);
+    const response = await fetch(target, {
       method: 'GET',
       headers: {
         accept: 'application/json',
@@ -559,8 +592,8 @@ export async function discoverModels(
   auth: AuthContext,
   input: DiscoverModelsInput,
 ): Promise<ModelDiscoveryResponse> {
-  assertCanView(auth.role);
-  const baseUrl = normalizeBaseUrl(input.baseUrl);
+  assertCanDiscoverModels(auth.role);
+  const endpoint = assertModelEndpointUrl(input.baseUrl);
   let apiKey = input.apiKey && input.apiKey.length > 0 ? input.apiKey : null;
 
   if (!apiKey && input.providerId) {
@@ -576,7 +609,7 @@ export async function discoverModels(
   }
 
   const startedAt = Date.now();
-  const fetched = await requestModelList(baseUrl, apiKey);
+  const fetched = await requestModelList(endpoint, apiKey);
   const latencyMs = Date.now() - startedAt;
 
   if (fetched.kind === 'timeout') {
@@ -729,7 +762,7 @@ export async function testProvider(
   if (keyError) {
     message = keyError;
   } else {
-    const fetched = await requestModelList(provider.base_url, apiKey);
+    const fetched = await requestModelList(assertModelEndpointUrl(provider.base_url), apiKey);
     if (fetched.kind === 'timeout') {
       message = '连接超时（8 秒），请检查端点是否可达。';
     } else if (fetched.kind === 'network_error') {

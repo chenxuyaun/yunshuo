@@ -142,7 +142,7 @@ async function startMockOidc(): Promise<MockOidc> {
         response.writeHead(200, { 'content-type': 'application/json' });
         response.end(
           JSON.stringify({
-            access_token: 'not-used-by-yunshuo',
+            access_token: `stub-access-${randomUUID()}`,
             token_type: 'Bearer',
             expires_in: 300,
             id_token: idToken,

@@ -56,6 +56,14 @@ const EMBEDDING_MODEL = 'stub-embed';
 const EMBEDDING_DIMENSIONS = 4;
 const RUN_ID = randomUUID().slice(0, 8);
 const TEST_EMAIL_SUFFIX = `@m4-${RUN_ID}.test`;
+// 桩服务不需要真密钥：值只为区分"这一次运行用的是哪一把"，按运行期生成。
+const STUB_KEYS = {
+  embedding: `m4-embedding-${RUN_ID}`,
+  chat: `m4-chat-${RUN_ID}`,
+  probe: `m4-probe-${RUN_ID}`,
+  stored: `m4-discover-stored-${RUN_ID}`,
+  inline: `m4-inline-${RUN_ID}`,
+} as const;
 const TEST_CHAPTER_NUMBERS = {
   seal: 8801,
   oldVersion: 8802,
@@ -428,7 +436,7 @@ suite('M4 正典索引与混合检索', () => {
       baseUrl: `http://127.0.0.1:${stubPort}/v1`,
       model: EMBEDDING_MODEL,
       purpose: 'embedding',
-      apiKey: 'm4-embedding-key',
+      apiKey: STUB_KEYS.embedding,
       isEnabled: true,
       priority: 1,
       promptPricePer1m: 2,
@@ -444,7 +452,7 @@ suite('M4 正典索引与混合检索', () => {
       baseUrl: `http://127.0.0.1:${stubPort}/v1`,
       model: 'stub-chat',
       purpose: 'chat',
-      apiKey: 'm4-chat-key',
+      apiKey: STUB_KEYS.chat,
       isEnabled: true,
       priority: 2,
       promptPricePer1m: 2,
@@ -653,7 +661,7 @@ suite('M4 正典索引与混合检索', () => {
     );
     expect(queryCall).toBeTruthy();
     expect(queryCall!.body?.input).toEqual(['封印']);
-    expect(queryCall!.authorization).toBe('Bearer m4-embedding-key');
+    expect(queryCall!.authorization).toBe(`Bearer ${STUB_KEYS.embedding}`);
     expect(stubRequests.some((request) => request.body?.model === 'stub-chat')).toBe(false);
   });
 
@@ -955,7 +963,7 @@ suite('M4 正典索引与混合检索', () => {
       {
         baseUrl: `http://127.0.0.1:${stubPort}/v1`,
         model: EMBEDDING_MODEL,
-        apiKey: 'm4-probe-key',
+        apiKey: STUB_KEYS.probe,
       },
     );
     expect(probe.status).toBe(200);
@@ -965,7 +973,7 @@ suite('M4 正典索引与混合检索', () => {
     expect(probe.body.message).toContain('4 维');
     const probeCall = stubRequests.find((request) => request.path.endsWith('/embeddings'));
     expect(probeCall?.body?.input).toEqual([EMBEDDING_PROBE_TEXT]);
-    expect(probeCall?.authorization).toBe('Bearer m4-probe-key');
+    expect(probeCall?.authorization).toBe(`Bearer ${STUB_KEYS.probe}`);
 
     const audits = await sql<{ result: string; metadata: Record<string, unknown> }[]>`
       SELECT result, metadata FROM audit_log
@@ -986,7 +994,7 @@ suite('M4 正典索引与混合检索', () => {
         {
           baseUrl: `http://127.0.0.1:${stubPort}/v1`,
           model: EMBEDDING_MODEL,
-          apiKey: 'm4-probe-key',
+          apiKey: STUB_KEYS.probe,
         },
       );
       expect(failedProbe.status).toBe(200);
@@ -1003,7 +1011,7 @@ suite('M4 正典索引与混合检索', () => {
       {
         baseUrl: `http://127.0.0.1:${stubPort}/v1`,
         model: EMBEDDING_MODEL,
-        apiKey: 'm4-probe-key',
+        apiKey: STUB_KEYS.probe,
       },
     );
     expectError(forbiddenProbe, 403, 'FORBIDDEN');
@@ -1251,11 +1259,11 @@ suite('M4 正典索引与混合检索', () => {
 
     // 清单形状非法（data 不是数组）也归入"未包含模型清单"，不 500
     modelsStub = { kind: 'no_data_field' };
-    expect((await call('POST', DISCOVER, ownerA, { baseUrl, apiKey: 'x' })).status).toBe(200);
+    expect((await call('POST', DISCOVER, ownerA, { baseUrl, apiKey: STUB_KEYS.probe })).status).toBe(200);
     modelsStub = { kind: 'ids', ids: ['stub-chat'] };
   });
 
-  it('拉取模型清单只限所有者与主笔，密钥来源按工作区隔离且不落持久数据', async () => {
+  it('拉取模型清单只限所有者，密钥来源按工作区隔离且不落持久数据', async () => {
     const DISCOVER = '/api/model-providers/discover-models';
     const baseUrl = `http://127.0.0.1:${stubPort}/v1`;
     modelsStub = { kind: 'ids', ids: ['stub-a'] };
@@ -1264,8 +1272,9 @@ suite('M4 正典索引与混合检索', () => {
       SELECT count(*)::text AS n FROM audit_log WHERE workspace_id = ${workspaceA}
     `;
 
-    // assertCanView：作者连清单都拉不到，只有所有者与主笔可以查看服务商配置
-    expect((await call<ModelDiscoveryResponse>('POST', DISCOVER, leadA, { baseUrl })).status).toBe(200);
+    // 拉清单会让服务端按请求里的地址出网，所以口径跟写服务商一致收到所有者：
+    // 主笔与作者都拉不到——主笔本来也无权保存服务商，给他这一个动作只是多开一处出网口。
+    expectError(await call('POST', DISCOVER, leadA, { baseUrl }), 403, 'FORBIDDEN');
     expectError(await call('POST', DISCOVER, authorA, { baseUrl }), 403, 'FORBIDDEN');
 
     // 跨工作区的 providerId 与不存在的 id 都是 404，不区分"存在但对你不可见"
@@ -1288,7 +1297,7 @@ suite('M4 正典索引与混合检索', () => {
       baseUrl,
       model: 'stub-chat',
       purpose: 'chat',
-      apiKey: 'm4-discover-stored-key',
+      apiKey: STUB_KEYS.stored,
       isEnabled: false,
       priority: 9,
       promptPricePer1m: 2,
@@ -1310,11 +1319,11 @@ suite('M4 正典索引与混合检索', () => {
     const inlineWins = await call<ModelDiscoveryResponse>('POST', DISCOVER, ownerA, {
       baseUrl,
       providerId: keyProviderId,
-      apiKey: 'm4-inline-key',
+      apiKey: STUB_KEYS.inline,
     });
     expect(inlineWins.status).toBe(200);
     expect(inlineWins.body.models).toEqual(['stub-a']);
-    expect(stubRequests.at(-1)?.authorization).toBe('Bearer m4-inline-key');
+    expect(stubRequests.at(-1)?.authorization).toBe(`Bearer ${STUB_KEYS.inline}`);
 
     // 拉清单是临时动作：不改写库里那份（坏）密钥，也不为发现本身写审计
     const stillBroken = await sql<{ n: string }[]>`

@@ -30,7 +30,7 @@ interface ErrorBody {
 
 const RUN_ID = randomUUID().slice(0, 8);
 const EMAIL_SUFFIX = `@chapter-import-${RUN_ID}.test`;
-const PASSWORD = 'correct-horse-battery-staple';
+const PASSWORD = `chapter-import-pass-${randomUUID()}`;
 const WORK_TITLE = `验收长篇 ${RUN_ID}`;
 const OTHER_WORK_TITLE = `隔离长篇 ${RUN_ID}`;
 

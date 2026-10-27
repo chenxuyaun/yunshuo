@@ -37,8 +37,8 @@ interface FrameworkErrorBody {
 
 const RUN_ID = randomUUID().slice(0, 8);
 const EMAIL_SUFFIX = `@m5-${RUN_ID}.test`;
-const PASSWORD = 'correct-horse-battery-staple';
-const NEW_PASSWORD = 'another-long-password-42';
+const PASSWORD = `m5-pass-${randomUUID()}`;
+const NEW_PASSWORD = `m5-new-pass-${randomUUID()}`;
 
 const dbAvailable = await sql`SELECT 1`
   .then(() => true)
@@ -334,7 +334,7 @@ suite('M5-A 本地账号、邀请与成员角色', () => {
 
     for (let attempt = 0; attempt < 8; attempt += 1) {
       expectError(
-        await acceptInvite(inviteToken(inviteA), { password: 'wrong-password-42' }),
+        await acceptInvite(inviteToken(inviteA), { password: `wrong-${randomUUID()}` }),
         401,
         'LOGIN_FAILED',
       );
