@@ -1,5 +1,6 @@
 import type {
   ChapterPlan,
+  ChapterPlanDocument,
   GateEvaluationResult,
   GateRulesetConfig,
 } from '@yunshuo/domain';
@@ -143,8 +144,26 @@ export const chapters = pgTable('chapters', {
   status: text('status').notNull().default('planned'),
   currentVersionId: uuid('current_version_id'),
   plan: jsonb('plan').$type<ChapterPlan>().notNull().default({}),
+  planRevision: integer('plan_revision').notNull().default(0),
+  planSummary: text('plan_summary').notNull().default(''),
+  planBeats: jsonb('plan_beats').$type<string[]>().notNull().default([]),
+  planUpdatedAt: timestamp('plan_updated_at', { withTimezone: true }),
+  bodyNeedsRevision: boolean('body_needs_revision').notNull().default(false),
+  markedPlanRevision: integer('marked_plan_revision'),
+  markedCanonVersionId: uuid('marked_canon_version_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const chapterPlanRevisions = pgTable('chapter_plan_revisions', {
+  id: uuid('id').primaryKey(),
+  chapterId: uuid('chapter_id').notNull(),
+  revision: integer('revision').notNull(),
+  plan: jsonb('plan').$type<ChapterPlanDocument>().notNull(),
+  bodyPolicy: text('body_policy').$type<'plan_only' | 'mark_body_for_revision'>(),
+  canonVersionId: uuid('canon_version_id'),
+  createdBy: uuid('created_by'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const chapterLeases = pgTable('chapter_leases', {
@@ -189,6 +208,7 @@ export const gateEvaluations = pgTable('gate_evaluations', {
   contextHash: text('context_hash').notNull(),
   status: text('status').notNull(),
   results: jsonb('results').$type<GateEvaluationResult>().notNull(),
+  hints: jsonb('hints').$type<unknown[]>().notNull().default([]),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -621,4 +641,56 @@ export const ledgerSuggestions = pgTable('ledger_suggestions', {
   decidedAt: timestamp('decided_at', { withTimezone: true }),
   decisionNote: text('decision_note').notNull().default(''),
   resultDraftVersionId: uuid('result_draft_version_id'),
+});
+
+// M6-4：已生效条目的独立检索投影与索引状态，以及章节与条目的人工关联。
+// 与 canon 侧的 canon_chunks / chunk_embeddings / index_status 同构：只投影 current_version，
+// 草稿与归档条目不进入检索、AI 上下文或门禁提示。
+export const ledgerChunks = pgTable('ledger_chunks', {
+  id: uuid('id').primaryKey(),
+  workspaceId: uuid('workspace_id').notNull(),
+  entryId: uuid('entry_id').notNull(),
+  versionId: uuid('version_id').notNull(),
+  kind: text('kind').notNull(),
+  workId: uuid('work_id'),
+  chunkIndex: integer('chunk_index').notNull(),
+  content: text('content').notNull(),
+  contentHash: text('content_hash').notNull(),
+  lexicalText: text('lexical_text').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const ledgerChunkEmbeddings = pgTable('ledger_chunk_embeddings', {
+  chunkId: uuid('chunk_id').primaryKey(),
+  providerId: uuid('provider_id'),
+  model: text('model').notNull(),
+  dimensions: integer('dimensions').notNull(),
+  embedding: vector('embedding').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const ledgerIndexStatus = pgTable('ledger_index_status', {
+  entryId: uuid('entry_id').primaryKey(),
+  workspaceId: uuid('workspace_id').notNull(),
+  versionId: uuid('version_id').notNull(),
+  status: text('status').notNull(),
+  detail: text('detail'),
+  chunkCount: integer('chunk_count').notNull().default(0),
+  providerName: text('provider_name'),
+  model: text('model'),
+  dimensions: integer('dimensions'),
+  attempts: integer('attempts').notNull().default(0),
+  nextRetryAt: timestamp('next_retry_at', { withTimezone: true }),
+  lastError: text('last_error'),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const chapterLedgerLinks = pgTable('chapter_ledger_links', {
+  id: uuid('id').primaryKey(),
+  workspaceId: uuid('workspace_id').notNull(),
+  chapterId: uuid('chapter_id').notNull(),
+  entryId: uuid('entry_id').notNull(),
+  note: text('note').notNull().default(''),
+  createdBy: uuid('created_by'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

@@ -27,6 +27,7 @@ import { BillingDialog } from './components/BillingDialog.js';
 import { BillingPanel } from './components/BillingPanel.js';
 import { ImportChaptersDialog } from './components/ImportChaptersDialog.js';
 import { LedgerDialog } from './components/LedgerDialog.js';
+import { WorkStructureDialog } from './components/WorkStructureDialog.js';
 
 interface VersionDialogState {
   versionId: string;
@@ -62,6 +63,7 @@ export function App() {
   const [teamDialogOpen, setTeamDialogOpen] = useState(false);
   const [billingDialogOpen, setBillingDialogOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [workStructureDialogOpen, setWorkStructureDialogOpen] = useState(false);
   const [ledgerDialogOpen, setLedgerDialogOpen] = useState(false);
 
   useEffect(() => {
@@ -137,6 +139,7 @@ export function App() {
     setTeamDialogOpen(false);
     setBillingDialogOpen(false);
     setImportDialogOpen(false);
+    setWorkStructureDialogOpen(false);
     setLedgerDialogOpen(false);
     setMe(next);
   }
@@ -250,6 +253,7 @@ export function App() {
           onOpenTeam={() => setTeamDialogOpen(true)}
           onOpenBilling={() => setBillingDialogOpen(true)}
           onOpenImport={() => setImportDialogOpen(true)}
+          onOpenWorkStructure={() => setWorkStructureDialogOpen(true)}
         />
         <main className="billing-console">
           <div className="billing-console-intro">
@@ -324,6 +328,7 @@ export function App() {
         onOpenTeam={() => setTeamDialogOpen(true)}
         onOpenBilling={() => setBillingDialogOpen(true)}
         onOpenImport={() => setImportDialogOpen(true)}
+        onOpenWorkStructure={() => setWorkStructureDialogOpen(true)}
         onOpenLedger={() => setLedgerDialogOpen(true)}
       />
 
@@ -382,17 +387,26 @@ export function App() {
               <p className="eyebrow">还没有章节</p>
               <p className="muted">
                 {me.role === 'owner' || me.role === 'lead' || me.role === 'author'
-                  ? '导入旧稿作为“迁移导入”版本开始。导入章不会被补造门禁结论，界面会如实显示“未评估”。'
-                  : '当前工作区还没有可读章节。请联系所有者或主笔导入旧稿。'}
+                  ? '先建一部作品与第一卷，再在卷下新建章节；也可以把旧稿整卷导入。导入章不会被补造门禁结论，界面会如实显示“未评估”。'
+                  : '当前工作区还没有可读章节。请联系所有者、主笔或作者新建或导入章节。'}
               </p>
               {me.role === 'owner' || me.role === 'lead' || me.role === 'author' ? (
-                <button
-                  type="button"
-                  className="button button-primary"
-                  onClick={() => setImportDialogOpen(true)}
-                >
-                  导入旧章
-                </button>
+                <div className="empty-actions">
+                  <button
+                    type="button"
+                    className="button button-primary"
+                    onClick={() => setWorkStructureDialogOpen(true)}
+                  >
+                    新建作品与卷
+                  </button>
+                  <button
+                    type="button"
+                    className="button button-quiet"
+                    onClick={() => setImportDialogOpen(true)}
+                  >
+                    导入旧章
+                  </button>
+                </div>
               ) : null}
             </div>
           )}
@@ -447,6 +461,17 @@ export function App() {
           onClose={() => setImportDialogOpen(false)}
           onImported={(chapterId) => {
             setImportDialogOpen(false);
+            setVersionDialog(null);
+            setSelectedId(chapterId);
+          }}
+        />
+      ) : null}
+
+      {workStructureDialogOpen ? (
+        <WorkStructureDialog
+          me={me}
+          onClose={() => setWorkStructureDialogOpen(false)}
+          onOpenChapter={(chapterId) => {
             setVersionDialog(null);
             setSelectedId(chapterId);
           }}

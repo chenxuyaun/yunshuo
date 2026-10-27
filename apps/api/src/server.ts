@@ -15,7 +15,9 @@ import { identityRoutes } from './routes/identity.js';
 import { indexRoutes } from './routes/index.js';
 import { ledgerRoutes } from './routes/ledger.js';
 import { modelProviderRoutes } from './routes/model-providers.js';
+import { planRoutes } from './routes/plan.js';
 import { searchRoutes } from './routes/search.js';
+import { workRoutes } from './routes/works.js';
 
 export async function buildServer(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -85,7 +87,9 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(authRoutes);
   await app.register(accountRoutes);
   await app.register(identityRoutes);
+  await app.register(workRoutes);
   await app.register(chapterRoutes);
+  await app.register(planRoutes);
   await app.register(indexRoutes);
   await app.register(ledgerRoutes);
   await app.register(searchRoutes);

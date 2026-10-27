@@ -39,6 +39,7 @@ function render(options: {
       onOpenTeam={() => {}}
       onOpenBilling={() => {}}
       onOpenImport={() => {}}
+      onOpenWorkStructure={() => {}}
       onOpenLedger={options.withLedger ? () => {} : undefined}
     />,
   );
@@ -57,6 +58,7 @@ describe('WorkspaceHeader', () => {
     expect(html).not.toContain('开发身份');
     expect(html).not.toContain('设定库');
     expect(html).not.toContain('导入旧章');
+    expect(html).not.toContain('作品与卷');
     expect(html).not.toContain('成员与邀请');
     expect(html).not.toContain('自动作业');
     expect(html).not.toContain('模型服务商');
@@ -81,12 +83,13 @@ describe('WorkspaceHeader', () => {
     const html = render({ role: 'author', withLedger: true });
 
     expect(html).toContain('>导入旧章<');
+    expect(html).toContain('>作品与卷<');
     expect(html).toContain('>设定库<');
     expect(html).not.toContain('>成员与邀请<');
     expect(html).not.toContain('>自动作业<');
     expect(html).not.toContain('>模型服务商<');
     expect(html).not.toContain('>计费<');
-    expect(html.split('class="button button-quiet button-small"').length - 1).toBe(4);
+    expect(html.split('class="button button-quiet button-small"').length - 1).toBe(5);
   });
 
   it('计费管理员看不到设定库与导入入口', () => {
@@ -94,6 +97,7 @@ describe('WorkspaceHeader', () => {
 
     expect(html).not.toContain('>设定库<');
     expect(html).not.toContain('>导入旧章<');
+    expect(html).not.toContain('>作品与卷<');
     expect(html).not.toContain('>成员与邀请<');
     expect(html).toContain('context-chip">计费管理员<');
     expect(html.split('class="button button-quiet button-small"').length - 1).toBe(2);
@@ -104,12 +108,13 @@ describe('WorkspaceHeader', () => {
 
     expect(html).toContain('>设定库<');
     expect(html).toContain('>导入旧章<');
+    expect(html).toContain('>作品与卷<');
     expect(html).toContain('>成员与邀请<');
     expect(html).toContain('>自动作业<');
     expect(html).toContain('>模型服务商<');
     expect(html).toContain('>计费<');
     expect(html).toContain('context-chip">主笔<');
-    expect(html.split('class="button button-quiet button-small"').length - 1).toBe(8);
+    expect(html.split('class="button button-quiet button-small"').length - 1).toBe(9);
   });
 
   it('没有传入设定库回调时，所有者也不显示设定库', () => {
@@ -139,6 +144,7 @@ describe('WorkspaceHeader', () => {
 
     expect(html).not.toContain('>设定库<');
     expect(html).not.toContain('>导入旧章<');
+    expect(html).not.toContain('>作品与卷<');
     expect(html).toContain('context-chip">AI 主体<');
   });
 });

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type {
   AuditResult,
-  ChapterPlan,
+  ChapterPlanDocument,
   ChapterStatus,
   GateEvaluationResult,
   GateKey,
@@ -279,6 +279,134 @@ export const decideWaiverSchema = z.object({
 
 export type WaiverGateKey = (typeof WAIVER_GATE_KEYS)[number];
 
+export const BODY_POLICIES = ['plan_only', 'mark_body_for_revision'] as const;
+
+export type BodyPolicy = (typeof BODY_POLICIES)[number];
+
+export const bodyPolicySchema = z.enum(BODY_POLICIES);
+
+export const chapterPlanSchema = z.object({
+  summary: z.string().trim().max(2000, '摘要不能超过 2000 字').default(''),
+  beats: z
+    .array(z.string().trim().min(1, '节拍不能是空行').max(200, '单条节拍不能超过 200 字'))
+    .max(20, '节拍最多 20 条')
+    .default([]),
+  requiredEntities: z
+    .array(z.string().trim().min(1, '核心人物不能为空').max(50, '单个核心人物不能超过 50 字'))
+    .max(20, '核心人物最多 20 个')
+    .default([]),
+  goalKeywords: z
+    .array(z.string().trim().min(1, '目标关键词不能为空').max(50, '单个目标关键词不能超过 50 字'))
+    .max(20, '目标关键词最多 20 个')
+    .default([]),
+  obstacleKeywords: z
+    .array(z.string().trim().min(1, '阻碍关键词不能为空').max(50, '单个阻碍关键词不能超过 50 字'))
+    .max(20, '阻碍关键词最多 20 个')
+    .default([]),
+});
+
+export const updateChapterPlanSchema = z.object({
+  plan: chapterPlanSchema,
+  basePlanRevision: z.number().int().min(0),
+  bodyPolicy: bodyPolicySchema.optional(),
+});
+
+export const resolveBodyRevisionSchema = z.object({
+  planRevision: z.number().int().min(1),
+  addressedCanonVersionId: z.string().uuid(),
+});
+
+export const planRevisionQuerySchema = z.object({
+  before: z.coerce.number().int().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(50).optional().default(20),
+});
+
+const workTitleSchema = z.string().trim().min(1, '请填写作品名').max(200);
+
+export const createWorkSchema = z.object({
+  title: workTitleSchema,
+});
+
+export const renameWorkSchema = z.object({
+  title: workTitleSchema,
+});
+
+export const createVolumeSchema = z.object({
+  title: z.string().trim().min(1, '请填写卷名').max(200),
+  number: z.number().int().min(1).max(999).optional(),
+});
+
+export const renameVolumeSchema = z.object({
+  title: z.string().trim().min(1, '请填写卷名').max(200),
+});
+
+export const reorderVolumesSchema = z.object({
+  volumeIds: z.array(z.string().uuid()).min(1).max(200),
+});
+
+export const createChapterSchema = z.object({
+  volumeId: z.string().uuid(),
+  title: z.string().trim().min(1, '请填写章节标题').max(200),
+  insertAfterChapterId: z.string().uuid().optional(),
+});
+
+export const updateChapterMetaSchema = z
+  .object({
+    title: z.string().trim().min(1, '请填写章节标题').max(200).optional(),
+    volumeId: z.string().uuid().optional(),
+    insertAfterChapterId: z.string().uuid().nullable().optional(),
+  })
+  .refine(
+    (value) =>
+      value.title !== undefined ||
+      value.volumeId !== undefined ||
+      value.insertAfterChapterId !== undefined,
+    '没有要修改的字段',
+  );
+
+export interface ChapterPlanStateView {
+  plan: ChapterPlanDocument;
+  planRevision: number;
+  bodyNeedsRevision: boolean;
+  markedPlanRevision: number | null;
+  markedCanonVersionId: string | null;
+  planUpdatedAt: string | null;
+}
+
+export interface PlanRevisionView {
+  revision: number;
+  plan: ChapterPlanDocument;
+  bodyPolicy: BodyPolicy | null;
+  canonVersionId: string | null;
+  createdBy: string | null;
+  createdByName: string | null;
+  createdAt: string;
+}
+
+export interface PlanRevisionsResponse {
+  revisions: PlanRevisionView[];
+  hasMore: boolean;
+}
+
+export interface VolumeView {
+  id: string;
+  number: number;
+  title: string;
+}
+
+export interface WorkView {
+  id: string;
+  title: string;
+  createdAt: string;
+  volumes: VolumeView[];
+  chapterCount: number;
+  canonCount: number;
+}
+
+export interface WorksResponse {
+  works: WorkView[];
+}
+
 export interface UserSummary {
   id: string;
   email: string;
@@ -425,7 +553,10 @@ export interface ChapterListItem {
   number: number;
   title: string;
   status: ChapterStatus;
+  volumeId: string;
   volumeTitle: string;
+  planRevision: number;
+  bodyNeedsRevision: boolean;
   wordCount: number | null;
   currentVersionNo: number | null;
   updatedAt: string;
@@ -631,7 +762,12 @@ export interface ChapterDetail {
   number: number;
   title: string;
   status: ChapterStatus;
-  plan: ChapterPlan;
+  plan: ChapterPlanDocument;
+  planRevision: number;
+  planUpdatedAt: string | null;
+  bodyNeedsRevision: boolean;
+  markedPlanRevision: number | null;
+  markedCanonVersionId: string | null;
   wordCount: number | null;
   currentVersion: VersionSummary | null;
   draft: DraftView | null;

@@ -55,6 +55,20 @@ function parseEvents(body: string): ParsedEvent[] {
     .filter((item): item is ParsedEvent => item !== null);
 }
 
+async function cleanupChapter(id: string): Promise<void> {
+  await sql`DELETE FROM ai_generation_locks WHERE chapter_id = ${id}`;
+  await sql`DELETE FROM model_calls WHERE chapter_id = ${id}`;
+  await sql`DELETE FROM ai_proposals WHERE chapter_id = ${id}`;
+  await sql`DELETE FROM chapter_leases WHERE chapter_id = ${id}`;
+  await sql`DELETE FROM events WHERE aggregate_type = 'chapter' AND aggregate_id = ${id}`;
+  await sql`
+    DELETE FROM audit_log
+    WHERE object_id = ${id} OR metadata->>'chapterId' = ${id}
+  `;
+  await sql`DELETE FROM outbox WHERE payload->>'chapterId' = ${id}`;
+  await sql`DELETE FROM chapters WHERE id = ${id}`;
+}
+
 const dbAvailable = await sql`SELECT 1`
   .then(() => true)
   .catch(() => {
@@ -105,6 +119,12 @@ suite('AI 提案路由的兜底帧', () => {
     const location = locationRows[0];
     if (!location) throw new Error('找不到演示作品/卷，请先执行 pnpm db:seed');
 
+    // 上一轮中断可能把这个固定章号留在演示作品里，先按标题清掉再插入。
+    const stale = await sql<{ id: string }[]>`
+      SELECT id FROM chapters WHERE title = ${TEST_TITLE}
+    `;
+    for (const row of stale) await cleanupChapter(row.id);
+
     chapterId = randomUUID();
     await sql`
       INSERT INTO chapters (
@@ -133,18 +153,9 @@ suite('AI 提案路由的兜底帧', () => {
   });
 
   afterAll(async () => {
-    await sql`DELETE FROM ai_generation_locks WHERE chapter_id = ${chapterId}`;
-    await sql`DELETE FROM model_calls WHERE chapter_id = ${chapterId}`;
-    await sql`DELETE FROM ai_proposals WHERE chapter_id = ${chapterId}`;
-    await sql`DELETE FROM chapter_leases WHERE chapter_id = ${chapterId}`;
-    await sql`DELETE FROM events WHERE aggregate_type = 'chapter' AND aggregate_id = ${chapterId}`;
-    await sql`
-      DELETE FROM audit_log
-      WHERE object_id = ${chapterId} OR metadata->>'chapterId' = ${chapterId}
-    `;
-    await sql`DELETE FROM outbox WHERE payload->>'chapterId' = ${chapterId}`;
-    await sql`DELETE FROM chapters WHERE id = ${chapterId}`;
-    await sql`DELETE FROM model_providers WHERE id = ${providerId}`;
+    if (chapterId) await cleanupChapter(chapterId);
+    // beforeAll 中途失败时 providerId 可能没赋上，别再拿 undefined 去删。
+    if (providerId) await sql`DELETE FROM model_providers WHERE id = ${providerId}`;
     await sql`DELETE FROM sessions WHERE user_id = ${owner.me.user.id}`;
     await sql`
       DELETE FROM audit_log

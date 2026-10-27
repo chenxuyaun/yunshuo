@@ -16,6 +16,7 @@ interface Props {
   onOpenTeam: () => void;
   onOpenBilling: () => void;
   onOpenImport: () => void;
+  onOpenWorkStructure: () => void;
   onOpenLedger?: () => void;
 }
 
@@ -32,6 +33,7 @@ export function WorkspaceHeader({
   onOpenTeam,
   onOpenBilling,
   onOpenImport,
+  onOpenWorkStructure,
   onOpenLedger,
 }: Props) {
   const [switching, setSwitching] = useState(false);
@@ -125,14 +127,24 @@ export function WorkspaceHeader({
           </button>
         ) : null}
         {me.role === 'owner' || me.role === 'lead' || me.role === 'author' ? (
-          <button
-            type="button"
-            className="button button-quiet button-small"
-            title="把旧稿作为迁移导入版本写入正典；门禁显示未评估"
-            onClick={onOpenImport}
-          >
-            导入旧章
-          </button>
+          <>
+            <button
+              type="button"
+              className="button button-quiet button-small"
+              title="新建作品、卷与章节，调整卷序与章节归属"
+              onClick={onOpenWorkStructure}
+            >
+              作品与卷
+            </button>
+            <button
+              type="button"
+              className="button button-quiet button-small"
+              title="把旧稿作为迁移导入版本写入正典；门禁显示未评估"
+              onClick={onOpenImport}
+            >
+              导入旧章
+            </button>
+          </>
         ) : null}
         {me.role === 'owner' || me.role === 'lead' ? (
           <>

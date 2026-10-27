@@ -229,6 +229,16 @@ export function assertCanReadLedger(role: Role): void {
   assertCanReadManuscript(role);
 }
 
+// 作品结构与章节计划都是人来决定的事实，AI 主体只能提建议。
+export function assertCanManageStructure(auth: AuthContext): void {
+  if (actorKindOf(auth) === 'ai') {
+    throw forbidden('AI 主体不能修改作品结构或章节计划');
+  }
+  if (auth.role !== 'owner' && auth.role !== 'lead' && auth.role !== 'author') {
+    throw forbidden('只有所有者、主笔与作者可以修改作品结构或章节计划');
+  }
+}
+
 export function assertCanWriteLedger(role: Role): void {
   if (role !== 'owner' && role !== 'lead' && role !== 'author') {
     throw forbidden('只有所有者、主笔与作者可以编辑设定与连续性账本');
