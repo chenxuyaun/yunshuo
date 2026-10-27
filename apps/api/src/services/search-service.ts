@@ -48,11 +48,22 @@ export interface SearchCanonInput {
   excludeChapterId?: string;
   mode?: 'auto' | 'lexical';
   limit?: number;
+  /**
+   * 只取章号 <= asOfChapterNumber 的正典片段（写作位之前）。不传时行为与原来完全一致。
+   * 只作用于正典两路；账本半在 L1a 不承诺 as-of（见 docs/adr/0008-l1-split.md）。
+   */
+  asOfChapterNumber?: number;
 }
 
 export interface CanonSearchOutcome {
   response: SearchResponse;
+  /** 正典切块正文，键为 canon_chunks.id。 */
   contents: Map<string, string>;
+  /**
+   * 账本切块正文，键为 ledger_chunks.id。与 contents 分开是刻意的：
+   * 两张表的 id 共用 uuid 空间，混在一个 Map 里语义会糊。
+   */
+  ledgerContents: Map<string, string>;
 }
 
 interface CoverageRow {
@@ -315,6 +326,11 @@ async function runLexicalSearch(
   const excludeFilter = input.excludeChapterId
     ? sql`AND ch.chapter_id <> ${input.excludeChapterId}`
     : sql``;
+  // 写作位上界：不传时不产生任何 SQL 条件，行为与加这个参数之前完全一致。
+  const asOfFilter =
+    input.asOfChapterNumber !== undefined
+      ? sql`AND c.number <= ${input.asOfChapterNumber}`
+      : sql``;
 
   const usesSubstring = isSingleCharQuery(input.query) || tokens.length === 0;
   if (usesSubstring) {
@@ -341,6 +357,7 @@ async function runLexicalSearch(
         AND ch.content ILIKE ${pattern}
         ${workFilter}
         ${excludeFilter}
+        ${asOfFilter}
       ORDER BY c.number ASC, ch.chunk_index ASC
       LIMIT ${CHANNEL_LIMIT}
     `;
@@ -374,6 +391,7 @@ async function runLexicalSearch(
       AND to_tsvector('simple', ch.lexical_text) @@ to_tsquery('simple', ${tsQuery})
       ${workFilter}
       ${excludeFilter}
+      ${asOfFilter}
     ORDER BY score DESC, c.number ASC, ch.chunk_index ASC
     LIMIT ${CHANNEL_LIMIT}
   `;
@@ -493,6 +511,10 @@ async function runVectorSearch(
   const excludeFilter = input.excludeChapterId
     ? sql`AND ch.chapter_id <> ${input.excludeChapterId}`
     : sql``;
+  const asOfFilter =
+    input.asOfChapterNumber !== undefined
+      ? sql`AND c.number <= ${input.asOfChapterNumber}`
+      : sql``;
 
   return sql<HitRow[]>`
     SELECT ch.id AS chunk_id,
@@ -518,6 +540,7 @@ async function runVectorSearch(
       AND ce.dimensions = ${coverage.vectorDimensions}
       ${workFilter}
       ${excludeFilter}
+      ${asOfFilter}
     ORDER BY ce.embedding <=> ${vectorLiteral(vector)}::vector ASC
     LIMIT ${CHANNEL_LIMIT}
   `;
@@ -763,6 +786,11 @@ export async function searchCanon(input: SearchCanonInput): Promise<CanonSearchO
   for (const row of [...lexicalRows, ...acceptedVectorRows]) {
     contents.set(row.chunk_id, row.content);
   }
+  // 账本正文单独一张表：键是 ledger_chunks.id，与正典的 canon_chunks.id 不共用键空间。
+  const ledgerContents = new Map<string, string>();
+  for (const row of [...ledgerLexicalRows, ...acceptedLedgerVectorRows]) {
+    ledgerContents.set(row.chunk_id, row.content);
+  }
 
   const results: SearchResultView[] = [];
   for (const hit of fused) {
@@ -888,5 +916,6 @@ export async function searchCanon(input: SearchCanonInput): Promise<CanonSearchO
       ledgerReason,
     },
     contents,
+    ledgerContents,
   };
 }

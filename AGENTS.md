@@ -44,14 +44,14 @@ deploy/          Studio 单机部署
 ## 三、改完必须跑什么
 
 ```bash
-pnpm typecheck            # 9/9 workspace 项目
+pnpm typecheck            # 10/10 workspace 项目（Scope 行显示 10 of 11：分母含根工程，根不参与 -r）
 pnpm test                 # 需先起测试库，见 CONTRIBUTING.md
 pnpm check:endpoints      # 端点覆盖闸门
 pnpm check:error-codes    # 错误码断言闸门
 pnpm check:schema-drift   # 迁移 ↔ schema.ts 漂移闸门
 ```
 
-**基线（2026-10-26）**，用于判断自己是否改坏了东西：`pnpm test` 679 项 / 84 个文件（domain 18、model-gateway 5、retrieval 20、gates 8、web 341、api 272、worker 15）；端点 98 条全部被测试引用、未引用 0 条；错误码 185 个 / 已断言 181 / 允许清单 4；迁移 22 个文件建表 49 张、schema.ts 登记 512 列、漂移 0 处。**基线会随功能增长，以命令输出为准**；数字对不上时先确认是不是自己这次改的，不要顺手改基线。
+**基线（2026-10-27）**，用于判断自己是否改坏了东西：`pnpm test` 727 项 / 89 个文件（domain 18、model-gateway 5、retrieval 20、tool-surface 23、gates 8、web 341、api 297、worker 15）；端点 98 条全部被测试引用、未引用 0 条；错误码 185 个 / 已断言 181 / 允许清单 4；迁移 22 个文件建表 49 张、schema.ts 登记 512 列、漂移 0 处。**基线会随功能增长，以命令输出为准**；数字对不上时先确认是不是自己这次改的，不要顺手改基线。
 
 改到对应模块时另有较重的本地验收脚本：`scripts/smoke.mjs`、`scripts/m4-acceptance.mjs`、`scripts/retrieval-eval.mjs`、`scripts/ledger-retrieval-eval.mjs`。`scripts/test-db-residue.mjs` 依赖本机 docker 容器名，只在本地手工跑，不在 CI。
 

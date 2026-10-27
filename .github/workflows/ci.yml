@@ -83,3 +83,44 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+  docker-build:
+    # 两个 Dockerfile 的 deps 层都是手工枚举的 workspace 清单（COPY 每个包的 package.json）。
+    # 新增一个包却忘了补一行时，构建会在 pnpm install --frozen-lockfile 处失败，
+    # 而 verify 任务不构建镜像，这个错要等部署才暴露。这里只构建、不推送，也刻意不依赖 verify：
+    # 构建信号与测试结果无关。要让它拦合并，还得把它的 context 加进分支保护的必需检查列表。
+    name: Docker build (no push)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # 用 buildx 的 GitHub Actions 缓存后端，两个镜像各占一个 scope，避免互相覆盖层缓存。
+      # 缓存只影响耗时：命中时秒级复用 deps 层，未命中（首次运行、缓存被淘汰）退化为全量构建，
+      # 结论不变。仓库级缓存配额 10 GiB，超了按 LRU 淘汰，不需要人工清理。
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/api.Dockerfile
+          tags: yunshuo-api:ci
+          push: false
+          load: false
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      - name: Build web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/web.Dockerfile
+          tags: yunshuo-web:ci
+          push: false
+          load: false
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web

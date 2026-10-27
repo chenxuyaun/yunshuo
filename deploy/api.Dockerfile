@@ -16,6 +16,7 @@ COPY packages/domain/package.json packages/domain/package.json
 COPY packages/gates/package.json packages/gates/package.json
 COPY packages/model-gateway/package.json packages/model-gateway/package.json
 COPY packages/retrieval/package.json packages/retrieval/package.json
+COPY packages/tool-surface/package.json packages/tool-surface/package.json
 RUN pnpm install --frozen-lockfile
 
 FROM deps AS runtime
