@@ -136,6 +136,11 @@ export const env = {
   modelKeySecretIsDedicated: Boolean(process.env.MODEL_KEY_SECRET),
   devAuth: !isProduction && process.env.DEV_AUTH === '1',
   searchVectorMinScore: searchVectorMinScore(),
+  // 模型端点默认拒绝本机/内网/保留地址；自建推理端点（Ollama、LM Studio、局域网 vLLM）
+  // 由部署方显式放行。云元数据与链路本地地址不受此开关影响，始终拒绝。
+  modelEndpointAllowPrivate:
+    process.env.MODEL_ENDPOINT_ALLOW_PRIVATE === '1' ||
+    process.env.MODEL_ENDPOINT_ALLOW_PRIVATE?.toLowerCase() === 'true',
   automationRunner: process.env.AUTOMATION_RUNNER !== '0',
   automationPollMs: automationPollMs(),
   mail: {

@@ -30,7 +30,7 @@
 - 建议 ≥4 GB 可用内存、≥10 GB 磁盘；首次构建需要拉取 Node 24、nginx 1.27 与 pgvector/pg17 镜像。
 - 主机可访问镜像仓库；要使用在线模型服务时，容器需能访问服务商端点。
 - 端口默认 `8088`，可用 `STUDIO_HTTP_PORT` 修改。
-- 本机已有 Ollama 时，容器内 API/worker 可用 `http://host.docker.internal:11434/v1` 配置嵌入服务商；Compose 已为 Linux 添加 `host-gateway` 映射。
+- 本机已有 Ollama 时，容器内 API/worker 可用 `http://host.docker.internal:11434/v1` 配置嵌入服务商；Compose 已为 Linux 添加 `host-gateway` 映射。模型端点默认拒绝本机、内网与保留地址，这类地址需先设 `STUDIO_MODEL_ENDPOINT_ALLOW_PRIVATE=1` 放行（见下）。
 
 ## 三、配置
 
@@ -67,6 +67,7 @@ node -e "console.log(require('node:crypto').randomBytes(48).toString('base64url'
 - `STUDIO_MAIL_MODE=off|smtp`：默认 `off`（界面如实显示“未配置”，邀请与重置链接仍可复制）；SMTP 另需 `STUDIO_MAIL_HOST` 等变量。
 - `STUDIO_OIDC_*`：单 IdP OIDC/SSO；`STUDIO_OIDC_ISSUER`、`STUDIO_OIDC_CLIENT_ID`、`STUDIO_OIDC_REDIRECT_URI` 同时存在才启用，回调为 `https://<公开地址>/api/auth/oidc/callback`。
 - `STUDIO_AUTOMATION_RUNNER=1|0`：无人值守 runner 随 API 进程运行，默认开启；作业仍需在界面创建授权。
+- `STUDIO_MODEL_ENDPOINT_ALLOW_PRIVATE=1|0`：默认 `0`。模型端点（新建、修改、拉取模型列表、连接测试、嵌入探测）默认拒绝本机、内网与保留地址；要用宿主机 Ollama（`http://host.docker.internal:11434/v1`）或局域网推理端点时设为 `1`。云元数据与链路本地地址（`169.254.0.0/16`、`fe80::/10`）始终拒绝，该开关不能放行。
 - `STUDIO_LOG_LEVEL`：默认 `info`。
 
 注意事项：
