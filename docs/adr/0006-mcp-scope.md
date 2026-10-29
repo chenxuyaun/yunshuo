@@ -17,7 +17,7 @@ L6 是"对外只读 MCP server"，把云说的能力抬出去给外部代理用�
 
 ## 如果做，范围是什么
 
-**Tools + Resources + Prompts 三类，不是只做 Tools。** 这是分层设计明确点出的一条：MCP 的完整形状是三类原语，只做 Tools 会把"账本条目作为可读资源"和"提示模板"这两块能力丢掉，做出来是个残废的 server，还得再改一次。
+**Tools + Resources + Prompts 三类，不是只做 Tools。** 这是分层设计明确点出的一条（`:217`「做的时候是 **Tools + Resources + Prompts 三类**，不是只做 Tools」；`:49`「原设计 L6 只讲了工具面抬出去，漏了 Resources 与 Prompts」）：MCP 的完整形状是三类原语，只做 Tools 会把"账本条目作为可读资源"和"提示模板"这两块能力丢掉。"做出来是个残废的 server，还得再改一次"是本 ADR 自己的表述——分层设计里没有这句原文。
 
 ## 做的时候必须同时处理的安全面
 
