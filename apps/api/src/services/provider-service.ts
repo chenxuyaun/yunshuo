@@ -21,6 +21,7 @@ import {
 import { env } from '../env.js';
 import type { AuthContext } from '../auth.js';
 import { badGateway, badRequest, conflict, forbidden, notFound } from '../errors.js';
+import { assertModelEndpointUrl } from './model-endpoint-guard.js';
 
 type Executor = Sql<any> | TransactionSql<any>;
 
@@ -92,30 +93,6 @@ function iso(value: Date | string): string {
 
 function normalizeBaseUrl(value: string): string {
   return value.replace(/\/+$/, '');
-}
-
-// 服务端会按这个地址主动出网，所以先把目标钉死：只允许 http/https、不内嵌凭据、
-// 不指向云元数据/链路本地地址。环回与私网故意放行——本机或内网自建推理端点
-// （Ollama、LM Studio）是受支持的用法，L0 探针本身就要打本机 Ollama。
-// 返回结构化 URL，拼接请求路径交给 URL 解析器，不再手工拼字符串。
-function assertModelEndpointUrl(value: string): URL {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    throw badRequest('VALIDATION', '模型端点不是合法 URL');
-  }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw badRequest('VALIDATION', '模型端点只支持 http/https');
-  }
-  if (url.username !== '' || url.password !== '') {
-    throw badRequest('VALIDATION', '模型端点地址不能内嵌凭据');
-  }
-  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  if (host === '169.254.169.254' || host.startsWith('169.254.')) {
-    throw badRequest('VALIDATION', '模型端点不能指向云元数据地址');
-  }
-  return url;
 }
 
 function nullableNumber(value: string | number | null): number | null {
@@ -270,6 +247,7 @@ export async function createProvider(
   input: CreateProviderInput,
 ): Promise<ModelProviderView> {
   assertCanManage(auth.role);
+  assertModelEndpointUrl(input.baseUrl, { allowPrivateEndpoints: env.modelEndpointAllowPrivate });
   const id = randomUUID();
   const baseUrl = normalizeBaseUrl(input.baseUrl);
   const promptPrice = input.promptPricePer1m ?? null;
@@ -331,6 +309,9 @@ export async function updateProvider(
   input: UpdateProviderInput,
 ): Promise<ModelProviderView> {
   assertCanManage(auth.role);
+  if (input.baseUrl !== undefined) {
+    assertModelEndpointUrl(input.baseUrl, { allowPrivateEndpoints: env.modelEndpointAllowPrivate });
+  }
 
   const row = await sql.begin(async (tx) => {
     const current = await loadProvider(tx, auth.workspace.id, providerId, true);
@@ -593,7 +574,9 @@ export async function discoverModels(
   input: DiscoverModelsInput,
 ): Promise<ModelDiscoveryResponse> {
   assertCanDiscoverModels(auth.role);
-  const endpoint = assertModelEndpointUrl(input.baseUrl);
+  const endpoint = assertModelEndpointUrl(input.baseUrl, {
+    allowPrivateEndpoints: env.modelEndpointAllowPrivate,
+  });
   let apiKey = input.apiKey && input.apiKey.length > 0 ? input.apiKey : null;
 
   if (!apiKey && input.providerId) {
@@ -650,6 +633,7 @@ export async function probeEmbedding(
   input: ProbeEmbeddingInput,
 ): Promise<EmbeddingProbeResponse> {
   assertCanManage(auth.role);
+  assertModelEndpointUrl(input.baseUrl, { allowPrivateEndpoints: env.modelEndpointAllowPrivate });
   const baseUrl = normalizeBaseUrl(input.baseUrl);
   let apiKey = input.apiKey && input.apiKey.length > 0 ? input.apiKey : null;
   let keyError: string | null = null;
@@ -762,7 +746,12 @@ export async function testProvider(
   if (keyError) {
     message = keyError;
   } else {
-    const fetched = await requestModelList(assertModelEndpointUrl(provider.base_url), apiKey);
+    const fetched = await requestModelList(
+      assertModelEndpointUrl(provider.base_url, {
+        allowPrivateEndpoints: env.modelEndpointAllowPrivate,
+      }),
+      apiKey,
+    );
     if (fetched.kind === 'timeout') {
       message = '连接超时（8 秒），请检查端点是否可达。';
     } else if (fetched.kind === 'network_error') {
